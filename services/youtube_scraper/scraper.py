@@ -196,10 +196,19 @@ class YouTubeScraper:
         else:
             upload_style = "insufficient_data"
 
-        # Analyze video performance
+        # Analyze video performance and engagement
         if channel.videos:
-            avg_views = sum(v.view_count for v in channel.videos if v.view_count) // len(channel.videos)
-            avg_likes = sum(v.like_count for v in channel.videos if v.like_count) // len([v for v in channel.videos if v.like_count])
+            views_list = [v.view_count for v in channel.videos if v.view_count]
+            likes_list = [v.like_count for v in channel.videos if v.like_count]
+            
+            avg_views = sum(views_list) // len(views_list) if views_list else 0
+            max_views = max(views_list) if views_list else 0
+            min_views = min(views_list) if views_list else 0
+            
+            # Calculate engagement rate (likes/views)
+            total_views = sum(views_list)
+            total_likes = sum(likes_list)
+            engagement_rate = (total_likes / total_views * 100) if total_views > 0 else 0
             
             performance_tier = "low"
             if avg_views >= 100000:
@@ -210,20 +219,72 @@ class YouTubeScraper:
                 performance_tier = "medium"
         else:
             performance_tier = "unknown"
+            avg_views = max_views = min_views = engagement_rate = 0
 
+        # Analyze content themes from titles
+        title_keywords = self._extract_title_themes(titles)
+        
+        # Analyze video durations if available
+        durations = [v.duration for v in channel.videos if v.duration]
+        avg_duration = sum(durations) // len(durations) if durations else 0
+        
+        # Format duration nicely
+        if avg_duration > 0:
+            duration_formatted = f"{avg_duration // 60}m {avg_duration % 60}s"
+            if avg_duration < 60:
+                video_style = "shorts"
+            elif avg_duration < 600:  # 10 min
+                video_style = "short_form"
+            elif avg_duration < 1800:  # 30 min
+                video_style = "medium_form"
+            else:
+                video_style = "long_form"
+        else:
+            duration_formatted = "unknown"
+            video_style = "unknown"
+
+        # Get recent upload dates
+        upload_dates = [v.upload_date.strftime("%Y-%m-%d") for v in channel.videos if v.upload_date]
+        
+        # Analyze top performing videos
+        top_videos_analysis = self._analyze_top_videos(channel.videos)
+        
         return {
             "content_type": primary_category,
             "content_categories": category_scores,
             "upload_style": upload_style,
-            "performance_tier": performance_tier,
-            "video_titles": titles[:5],  # Show first 5 titles
-            "common_tags": common_tags,
-            "total_unique_tags": len(set(all_tags)),
-            "style_indicators": {
-                "uses_tags": len(all_tags) > 0,
-                "consistent_naming": self._check_title_consistency(titles),
-                "description_length": len(channel.description or ""),
-            }
+            "video_style": video_style,
+            "performance_metrics": {
+                "tier": performance_tier,
+                "avg_views": avg_views,
+                "max_views": max_views,
+                "min_views": min_views,
+                "engagement_rate": round(engagement_rate, 2),
+                "avg_duration": duration_formatted,
+                "total_videos_analyzed": len(channel.videos)
+            },
+            "recent_content": {
+                "video_titles": titles[:8],  # Show more titles
+                "upload_dates": upload_dates[:5],
+                "title_themes": title_keywords[:10],
+                "common_tags": common_tags[:15]  # More tags
+            },
+            "creator_insights": {
+                "uses_tags_effectively": len(all_tags) > len(channel.videos) * 3,  # 3+ tags per video
+                "title_consistency": self._check_title_consistency(titles),
+                "description_quality": "detailed" if len(channel.description or "") > 200 else "basic" if len(channel.description or "") > 50 else "minimal",
+                "content_focus": "specialized" if len(category_scores) <= 2 else "diverse",
+                "upload_consistency": upload_style in ["daily", "weekly", "bi-weekly"],
+                "audience_engagement": "high" if engagement_rate > 3 else "medium" if engagement_rate > 1 else "low"
+            },
+            "monetization_indicators": {
+                "subscriber_milestone": self._get_subscriber_milestone(channel.subscriber_count or 0),
+                "content_suitable_for_ads": primary_category not in ["controversial", "adult"],
+                "brand_partnership_ready": (channel.subscriber_count or 0) >= 10000 and engagement_rate > 2,
+                "merch_potential": (channel.subscriber_count or 0) >= 5000 and performance_tier in ["high", "viral"],
+                "course_creation_potential": primary_category in ["education", "tech", "business"] and performance_tier != "low"
+            },
+            "video_analysis": top_videos_analysis
         }
 
     def _check_title_consistency(self, titles: list) -> bool:
@@ -251,3 +312,278 @@ class YouTubeScraper:
             return consistency > 0.6
         
         return False
+
+    def _extract_title_themes(self, titles: list) -> list:
+        """Extract common themes/keywords from video titles"""
+        if not titles:
+            return []
+        
+        # Common words to ignore
+        stop_words = {'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their'}
+        
+        # Extract all words from titles
+        all_words = []
+        for title in titles:
+            # Remove special characters and split into words
+            import re
+            words = re.findall(r'\b[a-zA-Z]{3,}\b', title.lower())
+            all_words.extend([w for w in words if w not in stop_words])
+        
+        # Count word frequency
+        word_counts = {}
+        for word in all_words:
+            word_counts[word] = word_counts.get(word, 0) + 1
+        
+        # Return most common themes (words that appear more than once)
+        themes = sorted([(word, count) for word, count in word_counts.items() if count > 1], 
+                       key=lambda x: x[1], reverse=True)
+        
+        return [word for word, count in themes]
+
+    def _get_subscriber_milestone(self, sub_count: int) -> str:
+        """Get the subscriber milestone status"""
+        if sub_count >= 10000000:
+            return "10M+ (mega influencer)"
+        elif sub_count >= 1000000:
+            return "1M+ (major influencer)"
+        elif sub_count >= 100000:
+            return "100K+ (established creator)"
+        elif sub_count >= 10000:
+            return "10K+ (growing creator)"
+        elif sub_count >= 1000:
+            return "1K+ (monetization eligible)"
+        elif sub_count >= 100:
+            return "100+ (emerging creator)"
+        else:
+            return "Under 100 (starting out)"
+
+    def _analyze_top_videos(self, videos: list) -> dict:
+        """Analyze top 5 recent videos and top 5 most popular videos"""
+        if not videos:
+            return {
+                "recent_top_5": [],
+                "most_popular_5": [],
+                "insights": {}
+            }
+
+        # Sort by upload date for recent videos (most recent first)
+        recent_videos = sorted([v for v in videos if v.upload_date], 
+                             key=lambda x: x.upload_date, reverse=True)[:5]
+        
+        # Sort by view count for most popular videos
+        popular_videos = sorted([v for v in videos if v.view_count], 
+                               key=lambda x: x.view_count, reverse=True)[:5]
+
+        # Analyze recent videos
+        recent_analysis = []
+        for i, video in enumerate(recent_videos, 1):
+            analysis = self._analyze_single_video(video, f"Recent #{i}")
+            recent_analysis.append(analysis)
+
+        # Analyze popular videos  
+        popular_analysis = []
+        for i, video in enumerate(popular_videos, 1):
+            analysis = self._analyze_single_video(video, f"Popular #{i}")
+            popular_analysis.append(analysis)
+
+        # Generate insights from top videos
+        insights = self._generate_video_insights(recent_videos, popular_videos)
+
+        return {
+            "recent_top_5": recent_analysis,
+            "most_popular_5": popular_analysis,
+            "insights": insights
+        }
+
+    def _analyze_single_video(self, video, rank: str) -> dict:
+        """Analyze a single video for detailed metrics"""
+        # Calculate engagement metrics
+        engagement_rate = 0
+        if video.view_count and video.view_count > 0 and video.like_count:
+            engagement_rate = (video.like_count / video.view_count) * 100
+
+        # Format duration
+        duration_formatted = "unknown"
+        if video.duration:
+            mins = video.duration // 60
+            secs = video.duration % 60
+            duration_formatted = f"{mins}m {secs}s"
+
+        # Analyze title characteristics
+        title_analysis = self._analyze_title_characteristics(video.title)
+        
+        # Performance classification
+        view_performance = "low"
+        if video.view_count:
+            if video.view_count >= 1000000:
+                view_performance = "viral"
+            elif video.view_count >= 100000:
+                view_performance = "high"
+            elif video.view_count >= 10000:
+                view_performance = "medium"
+
+        return {
+            "rank": rank,
+            "title": video.title,
+            "video_id": video.id,
+            "upload_date": video.upload_date.strftime("%Y-%m-%d") if video.upload_date else "unknown",
+            "metrics": {
+                "views": video.view_count or 0,
+                "likes": video.like_count or 0,
+                "comments": video.comment_count or 0,
+                "duration": duration_formatted,
+                "engagement_rate": round(engagement_rate, 2)
+            },
+            "performance": {
+                "view_tier": view_performance,
+                "has_good_engagement": engagement_rate > 2,
+                "comment_ratio": round((video.comment_count or 0) / max(video.view_count or 1, 1) * 1000, 2)  # Comments per 1k views
+            },
+            "title_analysis": title_analysis,
+            "tags": video.tags[:8] if video.tags else [],  # Show first 8 tags
+            "monetization_spots": self._identify_monetization_opportunities(video)
+        }
+
+    def _analyze_title_characteristics(self, title: str) -> dict:
+        """Analyze title for SEO and engagement characteristics"""
+        if not title:
+            return {}
+
+        return {
+            "length": len(title),
+            "word_count": len(title.split()),
+            "has_numbers": any(c.isdigit() for c in title),
+            "has_caps": any(c.isupper() for c in title),
+            "has_question": "?" in title,
+            "has_exclamation": "!" in title,
+            "clickbait_indicators": self._detect_clickbait_elements(title),
+            "seo_score": self._calculate_title_seo_score(title)
+        }
+
+    def _detect_clickbait_elements(self, title: str) -> list:
+        """Detect potential clickbait elements in title"""
+        clickbait_words = [
+            "amazing", "shocking", "unbelievable", "incredible", "insane", 
+            "crazy", "secret", "hidden", "exposed", "revealed", "truth",
+            "you won't believe", "must see", "gone wrong", "epic fail"
+        ]
+        
+        title_lower = title.lower()
+        found_elements = []
+        
+        for word in clickbait_words:
+            if word in title_lower:
+                found_elements.append(word)
+        
+        # Check for excessive punctuation
+        if title.count("!") > 1:
+            found_elements.append("excessive_exclamation")
+        if title.count("?") > 1:
+            found_elements.append("excessive_questions")
+        
+        return found_elements
+
+    def _calculate_title_seo_score(self, title: str) -> int:
+        """Calculate SEO score for video title (0-100)"""
+        score = 50  # Base score
+        
+        # Length optimization (40-60 chars is ideal)
+        if 40 <= len(title) <= 60:
+            score += 20
+        elif 30 <= len(title) <= 70:
+            score += 10
+        else:
+            score -= 10
+        
+        # Word count (5-10 words is good)
+        word_count = len(title.split())
+        if 5 <= word_count <= 10:
+            score += 15
+        elif 3 <= word_count <= 12:
+            score += 5
+        
+        # Has numbers (good for tutorials/lists)
+        if any(c.isdigit() for c in title):
+            score += 10
+        
+        # Capitalization (title case is good)
+        if title.istitle():
+            score += 5
+        
+        return min(100, max(0, score))
+
+    def _identify_monetization_opportunities(self, video) -> dict:
+        """Identify monetization opportunities in video content"""
+        opportunities = {
+            "product_placement": [],
+            "affiliate_potential": [],
+            "sponsorship_segments": [],
+            "course_material": False
+        }
+        
+        title_lower = video.title.lower()
+        description_lower = (video.description or "").lower()
+        all_text = f"{title_lower} {description_lower}"
+        
+        # Product placement opportunities
+        product_keywords = ["review", "unboxing", "setup", "tutorial", "guide", "comparison", "vs"]
+        for keyword in product_keywords:
+            if keyword in all_text:
+                opportunities["product_placement"].append(keyword)
+        
+        # Affiliate marketing potential
+        affiliate_keywords = ["best", "top", "recommend", "gear", "equipment", "tools", "software", "app"]
+        for keyword in affiliate_keywords:
+            if keyword in all_text:
+                opportunities["affiliate_potential"].append(keyword)
+        
+        # Sponsorship segments
+        sponsor_keywords = ["intro", "tutorial", "educational", "how-to", "explanation"]
+        for keyword in sponsor_keywords:
+            if keyword in all_text:
+                opportunities["sponsorship_segments"].append(keyword)
+        
+        # Course creation potential
+        course_keywords = ["tutorial", "learn", "course", "lesson", "training", "guide", "step by step"]
+        opportunities["course_material"] = any(keyword in all_text for keyword in course_keywords)
+        
+        return opportunities
+
+    def _generate_video_insights(self, recent_videos: list, popular_videos: list) -> dict:
+        """Generate insights comparing recent vs popular videos"""
+        if not recent_videos and not popular_videos:
+            return {}
+        
+        insights = {}
+        
+        # Performance comparison
+        if recent_videos and popular_videos:
+            recent_avg_views = sum(v.view_count or 0 for v in recent_videos) / len(recent_videos)
+            popular_avg_views = sum(v.view_count or 0 for v in popular_videos) / len(popular_videos)
+            
+            insights["performance_trend"] = {
+                "recent_avg_views": int(recent_avg_views),
+                "popular_avg_views": int(popular_avg_views),
+                "trend": "improving" if recent_avg_views > popular_avg_views * 0.7 else "declining"
+            }
+        
+        # Title length analysis
+        if recent_videos:
+            recent_title_lengths = [len(v.title) for v in recent_videos]
+            insights["title_optimization"] = {
+                "avg_title_length": sum(recent_title_lengths) / len(recent_title_lengths),
+                "optimal_range": all(40 <= length <= 60 for length in recent_title_lengths)
+            }
+        
+        # Content consistency
+        all_videos = recent_videos + popular_videos
+        if all_videos:
+            durations = [v.duration for v in all_videos if v.duration]
+            if durations:
+                avg_duration = sum(durations) / len(durations)
+                insights["content_consistency"] = {
+                    "avg_video_length": f"{int(avg_duration // 60)}m {int(avg_duration % 60)}s",
+                    "consistent_length": max(durations) - min(durations) < 300  # Within 5 minutes
+                }
+        
+        return insights

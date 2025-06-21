@@ -6,11 +6,11 @@ router = APIRouter(prefix="/youtube", tags=["youtube"])
 scraper = YouTubeScraper()
 
 
-@router.get("/channel/{channel_input}/health")
-async def get_channel_health(channel_input: str):
+@router.get("/channel/health")
+async def get_channel_health(url: str):
     """Get channel health analysis and content type"""
     try:
-        result = await scraper.get_channel_health(channel_input)
+        result = await scraper.get_channel_health(url)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
