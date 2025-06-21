@@ -1,14 +1,15 @@
 from fastapi import APIRouter, HTTPException
 from .scraper import YouTubeScraper
+from .models import ChannelHealthResponse
 
 
 router = APIRouter(prefix="/youtube", tags=["youtube"])
 scraper = YouTubeScraper()
 
 
-@router.get("/channel/health")
+@router.get("/channel/health", response_model=ChannelHealthResponse)
 async def get_channel_health(url: str):
-    """Get channel health analysis and content type"""
+    """Get comprehensive channel health analysis and content insights"""
     try:
         result = await scraper.get_channel_health(url)
 
