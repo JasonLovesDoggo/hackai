@@ -1,5 +1,8 @@
 from fastapi import FastAPI, APIRouter
 from services.youtube_scraper.routes import router as youtube_router
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI(title="HackAI - Creator Analytics Backend")
 

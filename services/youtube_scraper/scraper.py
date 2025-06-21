@@ -1,170 +1,119 @@
-import yt_dlp
-from typing import Optional, List, Dict, Any
-from datetime import datetime
-import httpx
-import asyncio
-from .models import ChannelInfo, VideoInfo
+from typing import Optional
+import logging
+from .models import ChannelInfo
 from .resolver import YouTubeURLResolver
 from .youtube_api import YouTubeAPIClient
+
+logger = logging.getLogger('uvicorn.error')
 
 
 class YouTubeScraper:
     def __init__(self):
-        self.ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "extract_flat": False,
-            "writesubtitles": False,
-            "writeautomaticsub": False,
-        }
         self.resolver = YouTubeURLResolver()
         self.api_client = YouTubeAPIClient()
 
-    async def get_channel_info(
-        self, channel_input: str, max_videos: int = 50
-    ) -> Optional[ChannelInfo]:
-        # First try to resolve using YouTube Data API (fast)
+    async def get_channel_health(self, channel_input: str) -> dict:
+        """Get channel health analysis and content type"""
+        # Only use YouTube Data API - fast and reliable
+        if not self.api_client.api_key:
+            logger.error("YouTube API key not found")
+            return {
+                "error": "YouTube API key required. Set YOUTUBE_API_KEY environment variable."
+            }
+
         try:
-            # Handle different input formats for API
-            if channel_input.startswith('@'):
-                # Use API to resolve handle directly
+            logger.info(f"Analyzing channel: {channel_input}")
+            
+            # Resolve channel input to channel ID
+            if channel_input.startswith("https://www.youtube.com/@"):
+                # Strip URL to just handle
+                handle = channel_input.replace("https://www.youtube.com/", "")
+                logger.info(f"Extracted handle from URL: {handle}")
+                async with self.api_client as api:
+                    channel_id = await api.get_channel_by_handle(handle)
+            elif channel_input.startswith("@"):
+                logger.info(f"Using handle directly: {channel_input}")
                 async with self.api_client as api:
                     channel_id = await api.get_channel_by_handle(channel_input)
-                    if channel_id:
-                        result = await api.get_channel_info(channel_id, max_videos)
-                        if result:
-                            return result
-            elif channel_input.startswith('UC') and len(channel_input) == 24:
-                # Direct channel ID - use API
-                async with self.api_client as api:
-                    result = await api.get_channel_info(channel_input, max_videos)
-                    if result:
-                        return result
+            elif channel_input.startswith("UC") and len(channel_input) == 24:
+                logger.info(f"Using direct channel ID: {channel_input}")
+                channel_id = channel_input
             else:
-                # Try API resolution first
+                logger.info(f"Using resolver for: {channel_input}")
                 channel_id = self.resolver.resolve_to_channel_id(channel_input)
-                if channel_id:
-                    async with self.api_client as api:
-                        result = await api.get_channel_info(channel_id, max_videos)
-                        if result:
-                            return result
-        except Exception as e:
-            print(f"API method failed, falling back to yt-dlp: {str(e)}")
-        
-        # Fallback to yt-dlp method (slower but more reliable)
-        try:
-            # Resolve channel input to actual channel ID
-            channel_id = self.resolver.resolve_to_channel_id(channel_input)
+
+            logger.info(f"Resolved channel ID: {channel_id}")
+            
             if not channel_id:
-                print(f"Could not resolve channel input: {channel_input}")
-                return None
+                logger.error(f"Could not resolve channel: {channel_input}")
+                return {"error": f"Could not resolve channel: {channel_input}"}
 
-            channel_url = f"https://www.youtube.com/channel/{channel_id}/videos"
-
-            with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-                channel_data = ydl.extract_info(channel_url, download=False)
-
-                if not channel_data:
-                    return None
-
-                videos = []
-                entries = channel_data.get("entries", [])[:max_videos]
-
-                for entry in entries:
-                    video_info = self._extract_video_info(entry)
-                    if video_info:
-                        videos.append(video_info)
-
-                channel_info = ChannelInfo(
-                    id=channel_id,
-                    name=channel_data.get("uploader", ""),
-                    handle=channel_data.get("uploader_id", ""),
-                    description=channel_data.get("description", ""),
-                    subscriber_count=self._safe_int(
-                        channel_data.get("subscriber_count")
-                    ),
-                    video_count=self._safe_int(channel_data.get("video_count")),
-                    view_count=self._safe_int(channel_data.get("view_count")),
-                    profile_picture_url=self._get_best_thumbnail(
-                        channel_data.get("thumbnails", [])
-                    ),
-                    keywords=channel_data.get("tags", []) or [],
-                    videos=videos,
-                )
-
-                return channel_info
-
-        except Exception as e:
-            print(f"Error scraping channel {channel_id}: {str(e)}")
-            return None
-
-    async def get_video_details(self, video_id: str) -> Optional[VideoInfo]:
-        # Try API first (fast)
-        try:
+            # Get channel data via API
             async with self.api_client as api:
-                result = await api.get_video_info(video_id)
-                if result:
-                    return result
+                channel_info = await api.get_channel_info(channel_id, 20)
+
+            if not channel_info:
+                logger.error(f"Channel data not found: {channel_id}")
+                return {"error": f"Channel data not found: {channel_id}"}
+
+            logger.info(f"Successfully got channel data for: {channel_info.name}")
+
+            # Simple health analysis
+            health_analysis = self._analyze_basic_health(channel_info)
+            
+            return {
+                "channel": {
+                    "id": channel_info.id,
+                    "name": channel_info.name,
+                    "handle": channel_info.handle,
+                    "subscribers": channel_info.subscriber_count,
+                    "total_videos": channel_info.video_count
+                },
+                "health_analysis": health_analysis
+            }
+            
         except Exception as e:
-            print(f"API method failed for video, falling back to yt-dlp: {str(e)}")
+            logger.error(f"Failed to analyze channel: {str(e)}")
+            return {"error": f"Failed to analyze channel: {str(e)}"}
+
+    def _analyze_basic_health(self, channel: ChannelInfo) -> dict:
+        """Basic health analysis without complex analyzer"""
+        subs = channel.subscriber_count or 0
+        video_count = len(channel.videos)
         
-        # Fallback to yt-dlp
-        try:
-            video_url = f"https://www.youtube.com/watch?v={video_id}"
-
-            with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-                video_data = ydl.extract_info(video_url, download=False)
-
-                if not video_data:
-                    return None
-
-                return self._extract_video_info(video_data)
-
-        except Exception as e:
-            print(f"Error scraping video {video_id}: {str(e)}")
-            return None
-
-    def _extract_video_info(self, video_data: Dict[str, Any]) -> Optional[VideoInfo]:
-        try:
-            upload_date = None
-            if video_data.get("upload_date"):
-                upload_date = datetime.strptime(video_data["upload_date"], "%Y%m%d")
-
-            return VideoInfo(
-                id=video_data.get("id", ""),
-                title=video_data.get("title", ""),
-                description=video_data.get("description", ""),
-                tags=video_data.get("tags", []) or [],
-                view_count=self._safe_int(video_data.get("view_count")) or 0,
-                like_count=self._safe_int(video_data.get("like_count")),
-                comment_count=self._safe_int(video_data.get("comment_count")),
-                duration=self._safe_int(video_data.get("duration")),
-                upload_date=upload_date,
-                thumbnail_url=self._get_best_thumbnail(
-                    video_data.get("thumbnails", [])
-                ),
-            )
-        except Exception as e:
-            print(f"Error extracting video info: {str(e)}")
-            return None
-
-    def _safe_int(self, value: Any) -> Optional[int]:
-        if value is None:
-            return None
-        try:
-            return int(value)
-        except (ValueError, TypeError):
-            return None
-
-    def _get_best_thumbnail(self, thumbnails: List[Dict[str, Any]]) -> Optional[str]:
-        if not thumbnails:
-            return None
-
-        # Sort by resolution and get the best one
-        sorted_thumbs = sorted(
-            thumbnails,
-            key=lambda x: (x.get("width", 0) * x.get("height", 0)),
-            reverse=True,
-        )
-
-        return sorted_thumbs[0].get("url") if sorted_thumbs else None
+        # Simple health score
+        health_score = 0
+        if subs >= 1000:
+            health_score += 40
+        elif subs >= 100:
+            health_score += 20
+        
+        if video_count >= 10:
+            health_score += 30
+        elif video_count >= 5:
+            health_score += 20
+        
+        if channel.videos:
+            avg_views = sum(v.view_count for v in channel.videos if v.view_count) // len(channel.videos)
+            if avg_views >= 1000:
+                health_score += 30
+            elif avg_views >= 100:
+                health_score += 20
+        
+        # Health rating
+        if health_score >= 80:
+            rating = "Excellent"
+        elif health_score >= 60:
+            rating = "Good"
+        elif health_score >= 40:
+            rating = "Fair"
+        else:
+            rating = "Poor"
+        
+        return {
+            "health_score": health_score,
+            "health_rating": rating,
+            "subscriber_count": subs,
+            "video_count": video_count,
+            "monetization_ready": subs >= 1000 and video_count > 0
+        }

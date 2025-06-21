@@ -1,10 +1,9 @@
 import re
 import yt_dlp
-from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from typing import Optional
+from datetime import datetime
 import json
 import os
-from urllib.parse import urlparse, parse_qs
 
 
 class YouTubeURLResolver:
@@ -90,6 +89,7 @@ class YouTubeURLResolver:
                 "quiet": True,
                 "no_warnings": True,
                 "extract_flat": True,
+                "socket_timeout": 10,
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -129,6 +129,7 @@ class YouTubeURLResolver:
                 "quiet": True,
                 "no_warnings": True,
                 "extract_flat": True,
+                "socket_timeout": 10,
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -168,6 +169,7 @@ class YouTubeURLResolver:
                 "quiet": True,
                 "no_warnings": True,
                 "extract_flat": True,
+                "socket_timeout": 10,
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -205,6 +207,12 @@ class YouTubeURLResolver:
         # If it's already a channel ID (starts with UC and is 24 chars long)
         if input_str.startswith("UC") and len(input_str) == 24:
             return input_str
+
+        # If it's a URL with @handle, strip to just @handle
+        if input_str.startswith("https://www.youtube.com/@"):
+            handle_match = re.search(r"@([^/?#&]+)", input_str)
+            if handle_match:
+                input_str = f"@{handle_match.group(1)}"
 
         # If it's just a handle without @, add it
         if not input_str.startswith(("http", "@", "UC")) and "/" not in input_str:
