@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from typing import List, Optional
@@ -8,6 +9,8 @@ from .models import VideoAnalysisRequest, VideoAnalysisResult, AnalysisStatus
 from .analyzer import VideoAnalyzer
 from .resolver import VideoInputResolver
 
+
+load_dotenv()
 
 router = APIRouter(prefix="/video-analysis", tags=["video-analysis"])
 analyzer = VideoAnalyzer()
