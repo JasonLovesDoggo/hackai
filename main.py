@@ -8,6 +8,7 @@ api_router.include_router(youtube_router)
 
 app.include_router(api_router)
 
+
 @app.get("/")
 async def root():
     return {"message": "HackAI Creator Analytics API"}
