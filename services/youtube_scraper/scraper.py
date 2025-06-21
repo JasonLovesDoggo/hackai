@@ -5,6 +5,7 @@ import httpx
 import asyncio
 from .models import ChannelInfo, VideoInfo
 from .resolver import YouTubeURLResolver
+from .youtube_api import YouTubeAPIClient
 
 
 class YouTubeScraper:
@@ -17,10 +18,40 @@ class YouTubeScraper:
             "writeautomaticsub": False,
         }
         self.resolver = YouTubeURLResolver()
+        self.api_client = YouTubeAPIClient()
 
     async def get_channel_info(
         self, channel_input: str, max_videos: int = 50
     ) -> Optional[ChannelInfo]:
+        # First try to resolve using YouTube Data API (fast)
+        try:
+            # Handle different input formats for API
+            if channel_input.startswith('@'):
+                # Use API to resolve handle directly
+                async with self.api_client as api:
+                    channel_id = await api.get_channel_by_handle(channel_input)
+                    if channel_id:
+                        result = await api.get_channel_info(channel_id, max_videos)
+                        if result:
+                            return result
+            elif channel_input.startswith('UC') and len(channel_input) == 24:
+                # Direct channel ID - use API
+                async with self.api_client as api:
+                    result = await api.get_channel_info(channel_input, max_videos)
+                    if result:
+                        return result
+            else:
+                # Try API resolution first
+                channel_id = self.resolver.resolve_to_channel_id(channel_input)
+                if channel_id:
+                    async with self.api_client as api:
+                        result = await api.get_channel_info(channel_id, max_videos)
+                        if result:
+                            return result
+        except Exception as e:
+            print(f"API method failed, falling back to yt-dlp: {str(e)}")
+        
+        # Fallback to yt-dlp method (slower but more reliable)
         try:
             # Resolve channel input to actual channel ID
             channel_id = self.resolver.resolve_to_channel_id(channel_input)
@@ -68,6 +99,16 @@ class YouTubeScraper:
             return None
 
     async def get_video_details(self, video_id: str) -> Optional[VideoInfo]:
+        # Try API first (fast)
+        try:
+            async with self.api_client as api:
+                result = await api.get_video_info(video_id)
+                if result:
+                    return result
+        except Exception as e:
+            print(f"API method failed for video, falling back to yt-dlp: {str(e)}")
+        
+        # Fallback to yt-dlp
         try:
             video_url = f"https://www.youtube.com/watch?v={video_id}"
 
