@@ -136,6 +136,8 @@ dependencies = [
     { name = "fastapi", extra = ["standard"] },
     { name = "httpx" },
     { name = "pydantic" },
+    { name = "python-multipart" },
+    { name = "twelvelabs" },
     { name = "uvicorn" },
     { name = "yt-dlp" },
 ]
@@ -150,6 +152,8 @@ requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115.13" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pydantic", specifier = ">=2.11.7" },
+    { name = "python-multipart", specifier = ">=0.0.6" },
+    { name = "twelvelabs", specifier = ">=0.4.10" },
     { name = "uvicorn", specifier = ">=0.34.3" },
     { name = "yt-dlp", specifier = ">=2025.6.9" },
 ]
@@ -437,6 +441,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ce/20/08dfcd9c983f6a6f4a1000d934b9e6d626cff8d2eeb77a89a68eef20a2b7/starlette-0.46.2.tar.gz", hash = "sha256:7f7361f34eed179294600af672f565727419830b54b7b084efe44bb82d2fccd5", size = 2580846, upload-time = "2025-04-13T13:56:17.942Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8b/0c/9d30a4ebeb6db2b25a841afbb80f6ef9a854fc3b41be131d249a977b4959/starlette-0.46.2-py3-none-any.whl", hash = "sha256:595633ce89f8ffa71a015caed34a5b2dc1c0cdb3f0f1fbd1e69339cf2abeec35", size = 72037, upload-time = "2025-04-13T13:56:16.21Z" },
+]
+
+[[package]]
+name = "twelvelabs"
+version = "0.4.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1b/6f/c69d20785fe384664156b572bef6ed7c6d50530bdd54ced8b89deedbd666/twelvelabs-0.4.10.tar.gz", hash = "sha256:547ba14cc0794e092998681be14d682db5eb2377f103114969a2c0e579bc8e24", size = 30032, upload-time = "2025-06-06T18:26:08.814Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/32/1b/ed41b301185ba4fe9f17c9219a775ae14b732210dc678b3fbc3e8e6da583/twelvelabs-0.4.10-py3-none-any.whl", hash = "sha256:3ed3a9995a5424671bb829bd42409dded85b9d4a6faffb504b2828e9235d0154", size = 33108, upload-time = "2025-06-06T18:26:07.416Z" },
 ]
 
 [[package]]

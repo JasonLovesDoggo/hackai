@@ -9,6 +9,8 @@ dependencies = [
     "pydantic>=2.11.7",
     "uvicorn>=0.34.3",
     "yt-dlp>=2025.6.9",
+    "python-multipart>=0.0.6",
+    "twelvelabs>=0.4.10",
 ]
 
 [dependency-groups]
