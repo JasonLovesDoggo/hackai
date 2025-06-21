@@ -145,31 +145,85 @@ class YouTubeScraper:
         common_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:10]
         common_tags = [tag for tag, count in common_tags]
 
-        # Analyze content type based on titles and tags
+        # Advanced content type analysis with weighted categories
         content_categories = {
-            'cybersecurity': ['security', 'hacking', 'cyber', 'penetration', 'vulnerability', 'malware', 'privacy', 'encryption'],
-            'tech': ['programming', 'coding', 'software', 'tech', 'development', 'javascript', 'python', 'tutorial'],
-            'gaming': ['gaming', 'gameplay', 'game', 'stream', 'minecraft', 'fortnite'],
-            'lifestyle': ['vlog', 'daily', 'life', 'routine', 'travel', 'food'],
-            'education': ['tutorial', 'learn', 'course', 'explained', 'how to', 'guide'],
-            'entertainment': ['funny', 'comedy', 'react', 'reaction', 'meme', 'music'],
-            'business': ['business', 'entrepreneur', 'startup', 'marketing', 'finance']
+            'cybersecurity': ['security', 'hacking', 'cyber', 'penetration', 'vulnerability', 'malware', 'privacy', 'encryption', 'breach', 'phishing', 'ransomware', 'firewall', 'vpn', 'forensics', 'osint'],
+            'tech_programming': ['programming', 'coding', 'software', 'development', 'javascript', 'python', 'react', 'node', 'api', 'database', 'algorithm', 'framework', 'frontend', 'backend', 'fullstack'],
+            'tech_hardware': ['hardware', 'pc build', 'gpu', 'cpu', 'motherboard', 'ram', 'ssd', 'cooling', 'overclocking', 'benchmark', 'tech review', 'unboxing', 'setup'],
+            'gaming_competitive': ['esports', 'tournament', 'competitive', 'ranking', 'pro', 'league', 'valorant', 'csgo', 'dota', 'overwatch', 'apex', 'fortnite'],
+            'gaming_casual': ['gaming', 'gameplay', 'playthrough', 'lets play', 'indie', 'minecraft', 'simulation', 'sandbox', 'adventure', 'puzzle'],
+            'gaming_review': ['game review', 'first impressions', 'gaming news', 'upcoming games', 'trailer reaction', 'early access'],
+            'lifestyle_vlog': ['vlog', 'daily', 'life', 'routine', 'day in my life', 'behind the scenes', 'personal', 'family'],
+            'lifestyle_travel': ['travel', 'vacation', 'exploring', 'adventure', 'culture', 'food tour', 'destination', 'backpacking'],
+            'lifestyle_fitness': ['workout', 'fitness', 'gym', 'health', 'nutrition', 'diet', 'exercise', 'bodybuilding', 'cardio', 'yoga'],
+            'education_academic': ['physics', 'chemistry', 'math', 'science', 'history', 'biology', 'research', 'university', 'study'],
+            'education_tutorial': ['tutorial', 'how to', 'guide', 'learn', 'course', 'lesson', 'training', 'tips', 'explained', 'beginner'],
+            'entertainment_comedy': ['funny', 'comedy', 'humor', 'sketch', 'parody', 'meme', 'jokes', 'stand up', 'roast'],
+            'entertainment_reaction': ['react', 'reaction', 'first time', 'watching', 'review', 'commentary', 'response'],
+            'entertainment_music': ['music', 'song', 'cover', 'original', 'instrumental', 'remix', 'beat', 'producer', 'studio'],
+            'business_entrepreneur': ['business', 'entrepreneur', 'startup', 'founder', 'ceo', 'company', 'growth', 'scaling'],
+            'business_finance': ['finance', 'investing', 'stocks', 'crypto', 'trading', 'money', 'wealth', 'passive income', 'budget'],
+            'business_marketing': ['marketing', 'social media', 'advertising', 'brand', 'strategy', 'content', 'seo', 'growth hacking'],
+            'art_creative': ['art', 'drawing', 'painting', 'design', 'creative', 'illustration', 'digital art', 'photoshop', 'blender'],
+            'food_cooking': ['cooking', 'recipe', 'food', 'kitchen', 'chef', 'baking', 'meal prep', 'restaurant', 'cuisine'],
+            'automotive': ['car', 'auto', 'vehicle', 'driving', 'mechanic', 'repair', 'modification', 'racing', 'review'],
+            'fashion_beauty': ['fashion', 'style', 'outfit', 'beauty', 'makeup', 'skincare', 'haul', 'trends'],
+            'sports': ['sports', 'football', 'basketball', 'soccer', 'baseball', 'athlete', 'training', 'highlights'],
+            'podcast_interview': ['podcast', 'interview', 'conversation', 'discussion', 'talk', 'guest', 'story'],
+            'news_commentary': ['news', 'politics', 'current events', 'commentary', 'analysis', 'opinion', 'debate'],
+            'kids_family': ['kids', 'children', 'family', 'toys', 'educational', 'nursery', 'cartoon', 'animation'],
+            'science_tech': ['science', 'experiment', 'discovery', 'technology', 'innovation', 'research', 'invention'],
+            'home_diy': ['diy', 'home improvement', 'renovation', 'crafts', 'building', 'repair', 'decor', 'garden'],
+            'spiritual_wellness': ['meditation', 'spirituality', 'mindfulness', 'wellness', 'self help', 'motivation', 'personal growth']
         }
 
-        # Analyze all text content
+        # Advanced content analysis with weighted scoring
         all_text = ' '.join(titles + all_tags + [channel.description or '']).lower()
         
+        # Calculate weighted scores for each category
         category_scores = {}
+        title_weight = 3  # Titles are more important
+        tag_weight = 2    # Tags are moderately important  
+        desc_weight = 1   # Description is less important
+        
         for category, keywords in content_categories.items():
-            score = sum(all_text.count(keyword) for keyword in keywords)
+            score = 0
+            
+            # Analyze titles (higher weight)
+            title_text = ' '.join(titles).lower()
+            for keyword in keywords:
+                score += title_text.count(keyword) * title_weight
+            
+            # Analyze tags (medium weight)
+            tag_text = ' '.join(all_tags).lower()
+            for keyword in keywords:
+                score += tag_text.count(keyword) * tag_weight
+            
+            # Analyze description (lower weight)
+            desc_text = (channel.description or '').lower()
+            for keyword in keywords:
+                score += desc_text.count(keyword) * desc_weight
+            
             if score > 0:
                 category_scores[category] = score
 
-        # Determine primary content type
+        # Determine primary and secondary categories
         if category_scores:
-            primary_category = max(category_scores, key=category_scores.get)
+            sorted_categories = sorted(category_scores.items(), key=lambda x: x[1], reverse=True)
+            primary_category = sorted_categories[0][0]
+            
+            # Get secondary categories (with at least 20% of primary score)
+            primary_score = sorted_categories[0][1]
+            secondary_categories = [
+                cat for cat, score in sorted_categories[1:4] 
+                if score >= primary_score * 0.2
+            ]
         else:
             primary_category = "general"
+            secondary_categories = []
+
+        # Calculate niche specificity
+        niche_specificity = self._calculate_niche_specificity(category_scores, primary_category)
 
         # Analyze upload style/frequency
         recent_videos = [v for v in channel.videos if v.upload_date]
@@ -251,7 +305,9 @@ class YouTubeScraper:
         
         return {
             "content_type": primary_category,
+            "secondary_categories": secondary_categories,
             "content_categories": category_scores,
+            "niche_analysis": niche_specificity,
             "upload_style": upload_style,
             "video_style": video_style,
             "performance_metrics": {
@@ -587,3 +643,119 @@ class YouTubeScraper:
                 }
         
         return insights
+
+    def _calculate_niche_specificity(self, category_scores: dict, primary_category: str) -> dict:
+        """Calculate how specialized vs broad the content is"""
+        if not category_scores:
+            return {
+                "specificity_score": 0,
+                "niche_type": "undefined",
+                "focus_level": "unknown"
+            }
+        
+        total_score = sum(category_scores.values())
+        primary_score = category_scores.get(primary_category, 0)
+        
+        # Calculate specificity (0-100)
+        primary_dominance = (primary_score / total_score) * 100 if total_score > 0 else 0
+        
+        # Determine niche type
+        if primary_dominance >= 70:
+            niche_type = "highly_specialized"
+            focus_level = "laser_focused"
+        elif primary_dominance >= 50:
+            niche_type = "specialized"
+            focus_level = "focused"
+        elif primary_dominance >= 30:
+            niche_type = "somewhat_diverse"
+            focus_level = "mixed_content"
+        else:
+            niche_type = "very_diverse"
+            focus_level = "broad_content"
+        
+        # Advanced niche insights
+        num_categories = len(category_scores)
+        category_diversity = min(num_categories / 10 * 100, 100)  # Max 10 categories = 100% diversity
+        
+        # Detect cross-niche patterns
+        cross_niche_patterns = self._detect_cross_niche_patterns(category_scores)
+        
+        return {
+            "specificity_score": round(primary_dominance, 1),
+            "niche_type": niche_type,
+            "focus_level": focus_level,
+            "category_diversity": round(category_diversity, 1),
+            "total_categories": num_categories,
+            "cross_niche_patterns": cross_niche_patterns,
+            "monetization_advantage": self._assess_niche_monetization_potential(primary_category, primary_dominance)
+        }
+
+    def _detect_cross_niche_patterns(self, category_scores: dict) -> list:
+        """Detect interesting cross-niche content patterns"""
+        patterns = []
+        
+        # Tech + Other combinations
+        if 'tech_programming' in category_scores and 'education_tutorial' in category_scores:
+            patterns.append("tech_educator")
+        if 'cybersecurity' in category_scores and 'education_tutorial' in category_scores:
+            patterns.append("security_educator")
+        if any('gaming' in cat for cat in category_scores) and 'tech_hardware' in category_scores:
+            patterns.append("gaming_tech_reviewer")
+        
+        # Business combinations
+        if 'business_finance' in category_scores and 'education_tutorial' in category_scores:
+            patterns.append("finance_educator")
+        if 'business_entrepreneur' in category_scores and 'lifestyle_vlog' in category_scores:
+            patterns.append("entrepreneur_lifestyle")
+        
+        # Creative combinations
+        if 'art_creative' in category_scores and 'education_tutorial' in category_scores:
+            patterns.append("creative_instructor")
+        if 'entertainment_music' in category_scores and 'tech_programming' in category_scores:
+            patterns.append("music_tech_producer")
+        
+        # Lifestyle combinations
+        if 'lifestyle_fitness' in category_scores and 'food_cooking' in category_scores:
+            patterns.append("health_lifestyle")
+        if 'lifestyle_travel' in category_scores and 'food_cooking' in category_scores:
+            patterns.append("travel_foodie")
+        
+        return patterns
+
+    def _assess_niche_monetization_potential(self, primary_category: str, specificity: float) -> dict:
+        """Assess monetization potential based on niche and specificity"""
+        
+        # High-value niches for monetization
+        high_value_niches = {
+            'business_finance': {'cpm': 'high', 'affiliate': 'excellent', 'courses': 'excellent'},
+            'business_entrepreneur': {'cpm': 'high', 'affiliate': 'excellent', 'courses': 'excellent'},
+            'tech_programming': {'cpm': 'medium-high', 'affiliate': 'good', 'courses': 'excellent'},
+            'cybersecurity': {'cpm': 'high', 'affiliate': 'good', 'courses': 'excellent'},
+            'business_marketing': {'cpm': 'high', 'affiliate': 'excellent', 'courses': 'good'},
+            'education_tutorial': {'cpm': 'medium', 'affiliate': 'good', 'courses': 'excellent'},
+            'tech_hardware': {'cpm': 'medium', 'affiliate': 'excellent', 'courses': 'medium'}
+        }
+        
+        # Medium-value niches
+        medium_value_niches = {
+            'lifestyle_fitness': {'cpm': 'medium', 'affiliate': 'good', 'courses': 'good'},
+            'food_cooking': {'cpm': 'medium', 'affiliate': 'medium', 'courses': 'good'},
+            'automotive': {'cpm': 'medium', 'affiliate': 'good', 'courses': 'medium'},
+            'home_diy': {'cpm': 'medium', 'affiliate': 'good', 'courses': 'medium'}
+        }
+        
+        niche_data = high_value_niches.get(primary_category, medium_value_niches.get(primary_category, {
+            'cpm': 'low-medium', 'affiliate': 'medium', 'courses': 'medium'
+        }))
+        
+        # Specificity bonus
+        specificity_bonus = "high" if specificity >= 60 else "medium" if specificity >= 40 else "low"
+        
+        return {
+            "niche_value": "high" if primary_category in high_value_niches else "medium" if primary_category in medium_value_niches else "standard",
+            "cpm_potential": niche_data.get('cpm', 'medium'),
+            "affiliate_potential": niche_data.get('affiliate', 'medium'),
+            "course_potential": niche_data.get('courses', 'medium'),
+            "specificity_bonus": specificity_bonus,
+            "audience_targeting": "precise" if specificity >= 60 else "moderate" if specificity >= 40 else "broad"
+        }
