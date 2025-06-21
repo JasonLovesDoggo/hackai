@@ -6,20 +6,31 @@ from datetime import datetime
 import os
 from .models import ChannelInfo, VideoInfo
 
-logger = logging.getLogger('uvicorn.error')
+logger = logging.getLogger("uvicorn.error")
 
 
 class YouTubeAPIClient:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("YOUTUBE_API_KEY")
         self.base_url = "https://www.googleapis.com/youtube/v3"
-        self.client = httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0))
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0))
+        return self._client
+
+    async def close(self):
+        if self._client:
+            await self._client.aclose()
+            self._client = None
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.client.aclose()
+        await self.close()
 
     def _parse_duration(self, duration_str: str) -> Optional[int]:
         """Parse ISO 8601 duration format (PT4M13S) to seconds"""
@@ -74,7 +85,7 @@ class YouTubeAPIClient:
 
             data = response.json()
             logger.debug(f"Handle lookup response: {data}")
-            
+
             if data.get("items"):
                 channel_id = data["items"][0]["id"]
                 logger.info(f"Found channel ID: {channel_id}")
@@ -104,7 +115,7 @@ class YouTubeAPIClient:
                 return data["items"][0]["id"]
 
         except Exception as e:
-            print(f"Error getting channel by username {username}: {str(e)}")
+            logger.error(f"Error getting channel by username {username}: {str(e)}")
 
         return None
 
@@ -135,6 +146,11 @@ class YouTubeAPIClient:
                 "key": self.api_key,
             }
 
+            logger.debug(
+                f"Getting channel info - URL: {channel_url}, params: {channel_params}"
+            )
+            logger.debug(f"Getting videos - URL: {videos_url}, params: {videos_params}")
+
             # Make both requests concurrently
             channel_response, videos_response = await asyncio.gather(
                 self.client.get(channel_url, params=channel_params),
@@ -142,10 +158,19 @@ class YouTubeAPIClient:
                 return_exceptions=True,
             )
 
-            if isinstance(channel_response, Exception) or isinstance(
-                videos_response, Exception
-            ):
+            logger.debug(f"Channel response type: {type(channel_response)}")
+            logger.debug(f"Videos response type: {type(videos_response)}")
+
+            if isinstance(channel_response, Exception):
+                logger.error(f"Channel API exception: {channel_response}")
                 return None
+
+            if isinstance(videos_response, Exception):
+                logger.error(f"Videos API exception: {videos_response}")
+                return None
+
+            logger.debug(f"Channel response status: {channel_response.status_code}")
+            logger.debug(f"Videos response status: {videos_response.status_code}")
 
             channel_response.raise_for_status()
             videos_response.raise_for_status()
@@ -198,7 +223,7 @@ class YouTubeAPIClient:
             )
 
         except Exception as e:
-            print(f"Error getting channel info for {channel_id}: {str(e)}")
+            logger.error(f"Error getting channel info for {channel_id}: {str(e)}")
             return None
 
     async def _get_video_details_batch(self, video_ids: List[str]) -> List[VideoInfo]:
