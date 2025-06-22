@@ -31,6 +31,54 @@ class TwelveLabsAPIClient:
         print(f"Index created: {self._index_id}")
         return self._index_id
 
+    def upload_video_async(self, file_path: str) -> Dict[str, Any]:
+        """
+        Start video upload without waiting for completion
+        Returns task information immediately
+        """
+        try:
+            index_id = self._get_or_create_index()
+
+            print(f"Uploading video: {file_path}")
+            # Create a video indexing task using the official pattern
+            task = self.client.task.create(index_id=index_id, file=file_path)
+            print(f"Task created: {task.id}")
+
+            return {
+                "task_id": task.id,
+                "video_id": getattr(task, 'video_id', None),
+                "status": task.status,
+                "created_at": datetime.now(),
+            }
+
+        except Exception as e:
+            print(f"Error uploading video: {str(e)}")
+            raise
+
+    async def wait_for_upload_completion(self, task_id: str) -> Dict[str, Any]:
+        """
+        Async polling for video upload completion
+        """
+        import asyncio
+        
+        while True:
+            # Get task status
+            task = self.client.task.retrieve(task_id)
+            print(f"  Status: {task.status}")
+            
+            if task.status == "ready":
+                return {
+                    "task_id": task.id,
+                    "video_id": task.video_id,
+                    "status": task.status,
+                    "created_at": datetime.now(),
+                }
+            elif task.status in ["failed", "error"]:
+                raise Exception(f"Video upload failed. Status: {task.status}")
+            
+            # Wait 5 seconds before polling again
+            await asyncio.sleep(5)
+
     def upload_video(self, file_path: str) -> Dict[str, Any]:
         """
         Upload a video file using the official SDK pattern

@@ -8,7 +8,7 @@ from .analyzer import video_monetization_analyzer
 router = APIRouter(prefix="/video-monetization", tags=["Video Monetization"])
 
 
-@router.post("/analyze", response_model=dict)
+@router.post("/analyze", response_model=VideoMonetizationResult)
 async def start_video_monetization_analysis(
     file: UploadFile = File(...),
     youtube_channel_url: Optional[str] = Form(None),
@@ -30,37 +30,35 @@ async def start_video_monetization_analysis(
     if not file.content_type or not file.content_type.startswith("video/"):
         raise HTTPException(status_code=400, detail="File must be a video")
 
-    # Create temporary file
-    with tempfile.NamedTemporaryFile(
+    # Create temporary file (don't delete immediately)
+    temp_file = tempfile.NamedTemporaryFile(
         delete=False, suffix=f".{file.filename.split('.')[-1]}"
-    ) as temp_file:
+    )
+    try:
+        # Write uploaded file to temporary file
+        content = await file.read()
+        temp_file.write(content)
+        temp_file.flush()
+        temp_file.close()  # Close file handle but keep file
+
+        # Start analysis workflow (background task will handle cleanup)
+        task_id = await video_monetization_analyzer.start_analysis(
+            temp_file.name, 
+            youtube_channel_url,
+            amazon_affiliate_code
+        )
+
+        # Get the task status immediately
+        task_status = video_monetization_analyzer.get_task_status(task_id)
+        return task_status
+
+    except Exception as e:
+        # Clean up on error
         try:
-            # Write uploaded file to temporary file
-            content = await file.read()
-            temp_file.write(content)
-            temp_file.flush()
-
-            # Start analysis workflow
-            task_id = await video_monetization_analyzer.start_analysis(
-                temp_file.name, 
-                youtube_channel_url,
-                amazon_affiliate_code
-            )
-
-            return {
-                "task_id": task_id,
-                "status": "pending",
-                "message": "Video monetization analysis started. Use GET /api/video-monetization/status/{task_id} to check progress."
-            }
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Analysis startup failed: {str(e)}")
-        finally:
-            # Clean up temporary file
-            try:
-                os.unlink(temp_file.name)
-            except:
-                pass
+            os.unlink(temp_file.name)
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"Analysis startup failed: {str(e)}")
 
 
 @router.get("/status/{task_id}", response_model=VideoMonetizationResult)

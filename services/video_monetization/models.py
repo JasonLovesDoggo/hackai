@@ -21,6 +21,7 @@ class ProductLink(BaseModel):
     rating: Optional[float] = None
     image_url: Optional[str] = None
     availability: Optional[str] = None
+    timestamp: Optional[str] = None  # Video timestamp when product appears (e.g., "0s-5s")
 
 
 class MonetizationStrategy(BaseModel):

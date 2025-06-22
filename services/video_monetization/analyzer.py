@@ -26,7 +26,7 @@ class VideoMonetizationAnalyzer:
         self.tasks: Dict[str, VideoMonetizationResult] = {}
     
     async def start_analysis(self, file_path: str, youtube_channel_url: Optional[str] = None, amazon_affiliate_code: Optional[str] = None) -> str:
-        """Start video monetization analysis workflow and return task ID"""
+        """Start video monetization analysis workflow and return task ID immediately"""
         task_id = str(uuid.uuid4())
         
         # Initialize task with pending status
@@ -40,44 +40,59 @@ class VideoMonetizationAnalyzer:
         # Store initial task
         self.tasks[task_id] = result
         
-        # Start processing in background (in real app, use background tasks)
+        # Start processing in background WITHOUT awaiting (fire and forget)
+        import asyncio
+        asyncio.create_task(self._process_video_analysis_safe(task_id, file_path, youtube_channel_url, amazon_affiliate_code))
+        
+        # Return task ID immediately
+        return task_id
+    
+    async def _process_video_analysis_safe(self, task_id: str, file_path: str, youtube_channel_url: Optional[str] = None, amazon_affiliate_code: Optional[str] = None):
+        """Safe wrapper for background processing with error handling"""
         try:
             await self._process_video_analysis(task_id, file_path, youtube_channel_url, amazon_affiliate_code)
         except Exception as e:
-            logger.error(f"Error starting analysis for task {task_id}: {e}")
-            self.tasks[task_id].status = "failed"
-            self.tasks[task_id].error_message = str(e)
-        
-        return task_id
+            logger.error(f"Error processing analysis for task {task_id}: {e}")
+            if task_id in self.tasks:
+                self.tasks[task_id].status = "failed"
+                self.tasks[task_id].error_message = str(e)
     
     async def _process_video_analysis(self, task_id: str, file_path: str, youtube_channel_url: Optional[str] = None, amazon_affiliate_code: Optional[str] = None):
         """Process the complete video monetization analysis workflow"""
+        import os
         try:
             # Update status to processing
             self.tasks[task_id].status = "processing"
             self.tasks[task_id].timestamps["video_analysis_started"] = datetime.now()
             
-            # Step 1: Analyze video using video analyzer
-            logger.info(f"Task {task_id}: Starting video analysis")
-            from services.video_analyzer.models import VideoAnalysisRequest
+            # Step 1: Start video upload (non-blocking)
+            logger.info(f"Task {task_id}: Starting video upload")
+            from services.video_analyzer.api_client import TwelveLabsAPIClient
             
-            video_request = VideoAnalysisRequest(features=["gist", "summary", "analysis"])
-            video_result = self.video_analyzer.analyze_video(file_path, video_request)
+            api_client = TwelveLabsAPIClient()
+            
+            # Start upload and get task info immediately
+            upload_result = api_client.upload_video_async(file_path)
+            video_task_id = upload_result["task_id"]
+            
+            # Poll for completion and then analyze
+            video_result = await self._wait_for_video_and_analyze(api_client, video_task_id)
             
             # Store video analysis result
-            self.tasks[task_id].video_analysis = video_result.model_dump() if hasattr(video_result, 'model_dump') else video_result.__dict__
+            self.tasks[task_id].video_analysis = video_result
             self.tasks[task_id].timestamps["video_analysis_completed"] = datetime.now()
             
             # Step 2: Extract product keywords from analysis
             logger.info(f"Task {task_id}: Extracting product keywords")
-            product_keywords = await self._extract_product_keywords(video_result)
-            self.tasks[task_id].product_keywords = product_keywords
+            products_with_timestamps = await self._extract_product_keywords(video_result)
+            # Store just the names for backward compatibility
+            self.tasks[task_id].product_keywords = [p["name"] for p in products_with_timestamps]
             self.tasks[task_id].timestamps["keywords_extracted"] = datetime.now()
             
             # Step 3: Generate affiliate links for products
-            if product_keywords:
-                logger.info(f"Task {task_id}: Generating affiliate links for {len(product_keywords)} keywords")
-                await self._generate_product_links(task_id, product_keywords, amazon_affiliate_code)
+            if products_with_timestamps:
+                logger.info(f"Task {task_id}: Generating affiliate links for {len(products_with_timestamps)} keywords")
+                await self._generate_product_links(task_id, products_with_timestamps, amazon_affiliate_code)
                 self.tasks[task_id].timestamps["affiliate_links_generated"] = datetime.now()
             
             # Step 4: Get YouTube channel context if URL provided
@@ -100,9 +115,33 @@ class VideoMonetizationAnalyzer:
             logger.error(f"Error processing task {task_id}: {e}")
             self.tasks[task_id].status = "failed"
             self.tasks[task_id].error_message = str(e)
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(file_path)
+                logger.info(f"Cleaned up temporary file: {file_path}")
+            except Exception as e:
+                logger.warning(f"Could not clean up temporary file {file_path}: {e}")
     
-    async def _extract_product_keywords(self, video_result) -> List[str]:
-        """Extract product keywords from video analysis"""
+    async def _wait_for_video_and_analyze(self, api_client, video_task_id: str) -> Dict[str, Any]:
+        """Wait for video upload completion and then analyze"""
+        # Wait for upload completion
+        upload_result = await api_client.wait_for_upload_completion(video_task_id)
+        video_id = upload_result["video_id"]
+        
+        # Now analyze the video
+        analysis_result = api_client.analyze_video(video_id, ["gist", "summary", "analysis"])
+        
+        return {
+            "upload": upload_result,
+            "analysis": analysis_result,
+            "video_id": video_id,
+            "status": "completed",
+            "created_at": datetime.now().isoformat()
+        }
+    
+    async def _extract_product_keywords(self, video_result) -> List[Dict[str, str]]:
+        """Extract product keywords with timestamps from video analysis"""
         try:
             # Get the analysis text from the video result
             analysis_text = ""
@@ -129,19 +168,28 @@ class VideoMonetizationAnalyzer:
             if matches:
                 product_text = matches.group(1)
                 
-                # Extract individual products using bullet points or dashes
+                # Extract individual products with timestamps
                 products = []
                 for line in product_text.split('\n'):
                     line = line.strip()
                     if line.startswith('-') or line.startswith('•') or line.startswith('*'):
-                        # Clean up the product name
-                        product = line.lstrip('-•* ').strip()
-                        # Extract product name (remove timestamps in parentheses)
-                        product = re.sub(r'\s*\(\d+s-\d+s\)', '', product)
-                        if product:
-                            products.append(product)
+                        # Clean up the product line
+                        product_line = line.lstrip('-•* ').strip()
+                        
+                        # Extract timestamp if present
+                        timestamp_match = re.search(r'\((\d+s-\d+s)\)', product_line)
+                        timestamp = timestamp_match.group(1) if timestamp_match else None
+                        
+                        # Extract product name (remove timestamps in parentheses for search)
+                        product_name = re.sub(r'\s*\(\d+s-\d+s\)', '', product_line).strip()
+                        
+                        if product_name:
+                            products.append({
+                                "name": product_name,
+                                "timestamp": timestamp
+                            })
                 
-                logger.info(f"Extracted {len(products)} product keywords: {products}")
+                logger.info(f"Extracted {len(products)} products with timestamps: {[f'{p["name"]} ({p["timestamp"]})' for p in products]}")
                 return products
             else:
                 logger.warning("No product section found in analysis text")
@@ -151,7 +199,7 @@ class VideoMonetizationAnalyzer:
             logger.error(f"Error extracting product keywords: {e}")
             return []
     
-    async def _generate_product_links(self, task_id: str, keywords: List[str], amazon_affiliate_code: Optional[str] = None):
+    async def _generate_product_links(self, task_id: str, products_with_timestamps: List[Dict[str, str]], amazon_affiliate_code: Optional[str] = None):
         """Generate affiliate links for extracted product keywords"""
         try:
             # Use provided affiliate codes or defaults
@@ -165,6 +213,9 @@ class VideoMonetizationAnalyzer:
                 clickbank=""
             )
             
+            # Extract just the product names for search (no timestamps)
+            keywords = [p["name"] for p in products_with_timestamps]
+            
             # Create link generation request
             link_request = LinkGenerationRequest(
                 keywords=keywords,
@@ -175,9 +226,18 @@ class VideoMonetizationAnalyzer:
             # Generate affiliate links
             link_result = await self.link_generator.generate_affiliate_links(link_request)
             
-            # Convert to our ProductLink model
+            # Convert to our ProductLink model and match with timestamps
             products = []
             for link in link_result.product_links:
+                # Find matching timestamp for this product
+                timestamp = None
+                for product_with_timestamp in products_with_timestamps:
+                    # Try to match product names (fuzzy match since search results might be slightly different)
+                    if product_with_timestamp["name"].lower() in link.product_name.lower() or \
+                       any(word in link.product_name.lower() for word in product_with_timestamp["name"].lower().split() if len(word) > 3):
+                        timestamp = product_with_timestamp["timestamp"]
+                        break
+                
                 product = ProductLink(
                     product_name=link.product_name,
                     product_url=link.product_url,
@@ -186,7 +246,8 @@ class VideoMonetizationAnalyzer:
                     price=link.price,
                     rating=link.rating,
                     image_url=link.image_url,
-                    availability=link.availability
+                    availability=link.availability,
+                    timestamp=timestamp
                 )
                 products.append(product)
             
@@ -198,14 +259,10 @@ class VideoMonetizationAnalyzer:
     
     async def _get_channel_context(self, task_id: str, youtube_channel_url: str):
         """Get YouTube channel context for additional monetization insights"""
-        try:
-            # Use YouTube scraper to get channel health data
-            channel_data = await self.youtube_scraper.get_channel_health(youtube_channel_url)
-            self.tasks[task_id].channel_context = channel_data
-            logger.info(f"Fetched channel context for task {task_id}")
-            
-        except Exception as e:
-            logger.error(f"Error fetching channel context for task {task_id}: {e}")
+        # Use YouTube scraper to get channel health data
+        channel_data = await self.youtube_scraper.get_channel_health(youtube_channel_url)
+        self.tasks[task_id].channel_context = channel_data
+        logger.info(f"Fetched channel context for task {task_id}")
     
     async def _generate_monetization_strategies(self, task_id: str):
         """Generate monetization strategies using GROQ AI"""
@@ -295,7 +352,7 @@ class VideoMonetizationAnalyzer:
             logger.error(f"Error generating monetization strategies for task {task_id}: {e}")
     
     def get_task_status(self, task_id: str) -> Optional[VideoMonetizationResult]:
-        """Get current status of a task"""
+        """Get current status of a task - returns immediately"""
         return self.tasks.get(task_id)
     
     def list_tasks(self) -> Dict[str, VideoMonetizationResult]:
