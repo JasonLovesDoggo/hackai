@@ -93,7 +93,14 @@ class VideoMonetizationAnalyzer:
             # Step 1: Check for cached 12labs response first
             import os
 
-            cache_file = "/home/json/Projects/hackai/12.json"
+            # Dynamically resolve project root path
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.join(current_dir, "..", "..")
+            project_root = os.path.abspath(project_root)
+            print(f'{project_root=}')
+            cache_file = os.path.join(project_root, "12.json")
+            
+            logger.debug(f"Looking for cache file at: {cache_file}")
 
             if os.path.exists(cache_file):
                 logger.info(
