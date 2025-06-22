@@ -206,11 +206,16 @@ class VideoMonetizationAnalyzer:
             
             # FUCK THE REGEX - JUST USE GROQ ON THE FULL TEXT DIRECTLY
             logger.info("🤖 SKIPPING REGEX - CALLING GROQ AI DIRECTLY ON FULL ANALYSIS TEXT...")
-            products = await self._extract_products_with_groq(analysis_text)
+            raw_products = await self._extract_products_with_groq(analysis_text)
             
-            if products:
-                logger.info(f"✅ GROQ extracted {len(products)} products: {[f'{p["name"]} ({p.get("timestamp", "no timestamp")})' for p in products]}")
-                return products
+            if raw_products:
+                logger.info(f"✅ GROQ extracted {len(raw_products)} raw products")
+                
+                # Clean up and filter products
+                clean_products = await self._clean_and_dedupe_products(raw_products)
+                
+                logger.info(f"🧹 After cleaning and deduping: {len(clean_products)} products: {[f'{p["name"]} ({p.get("timestamp", "no timestamp")})' for p in clean_products]}")
+                return clean_products
             else:
                 logger.error("❌ GROQ EXTRACTION FAILED - RETURNED EMPTY ARRAY - THIS SHIT DON'T WOOOOOOOORK!")
                 logger.error(f"🔍 DEBUG: GROQ was given this analysis text: {analysis_text[:1000]}...")
@@ -294,6 +299,138 @@ CRITICAL RULES:
             logger.error(f"💥 Error calling GROQ for product extraction: {extraction_error}")
             return []
     
+    async def _clean_and_dedupe_products(self, raw_products: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """Clean timestamps, filter generic products, and dedupe using GROQ"""
+        try:
+            # Step 1: Clean timestamps and filter out generic products
+            filtered_products = []
+            generic_keywords = {"laptop", "computer", "device", "gadget", "item", "product", "thing"}
+            
+            for product in raw_products:
+                name = product.get("name", "").strip()
+                timestamp = product.get("timestamp")
+                
+                # Filter out generic products
+                if name.lower() in generic_keywords or len(name.split()) <= 1:
+                    logger.info(f"🗑️ Dropping generic product: {name}")
+                    continue
+                
+                # Clean timestamp format: [0s (00:00)-5s (00:05)] → 00:00-00:05
+                clean_timestamp = None
+                if timestamp:
+                    import re
+                    # Extract MM:SS format from complex timestamp
+                    time_match = re.search(r'\((\d{2}:\d{2})\)[^)]*\((\d{2}:\d{2})\)', str(timestamp))
+                    if time_match:
+                        start_time = time_match.group(1)
+                        end_time = time_match.group(2)
+                        clean_timestamp = f"{start_time}-{end_time}"
+                    else:
+                        # Try simpler format like "0s-5s"
+                        simple_match = re.search(r'(\d+)s[^)]*(\d+)s', str(timestamp))
+                        if simple_match:
+                            start_sec = int(simple_match.group(1))
+                            end_sec = int(simple_match.group(2))
+                            start_min = start_sec // 60
+                            start_s = start_sec % 60
+                            end_min = end_sec // 60
+                            end_s = end_sec % 60
+                            clean_timestamp = f"{start_min:02d}:{start_s:02d}-{end_min:02d}:{end_s:02d}"
+                
+                filtered_products.append({
+                    "name": name,
+                    "timestamp": clean_timestamp
+                })
+            
+            if not filtered_products:
+                logger.info("🚫 No valid products after filtering")
+                return []
+            
+            # Step 2: Use GROQ to dedupe and create clean product names
+            logger.info(f"🤖 Using GROQ to dedupe {len(filtered_products)} products...")
+            
+            product_list = "\n".join([f"- {p['name']} (timestamp: {p['timestamp']})" for p in filtered_products])
+            
+            prompt = f"""
+You are a product deduplication expert. Clean up this product list:
+
+{product_list}
+
+RULES:
+1. Remove duplicates (e.g., "Logitech" and "Black Computer Mouse" are the same mouse)
+2. Create clean, specific product names (e.g., "Logitech MX Master 3s Mouse", "Celsius Energy Drink") 
+3. Keep timestamps for each unique product
+4. Skip generic items like "laptop", "computer", "device"
+
+Return ONLY a JSON array:
+[
+  {{"name": "Logitech MX Master 3s Mouse", "timestamp": "00:00-00:05"}},
+  {{"name": "Celsius Energy Drink", "timestamp": "00:05-00:13"}}
+]
+"""
+
+            import httpx
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{self.groq_client.base_url}/chat/completions",
+                    headers=self.groq_client.headers,
+                    json={
+                        "model": "llama-3.3-70b-versatile",
+                        "messages": [
+                            {"role": "system", "content": "You are a product deduplication expert. Return only clean, deduplicated JSON arrays."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        "temperature": 0.1,
+                        "max_tokens": 800
+                    }
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    content = result["choices"][0]["message"]["content"].strip()
+                    
+                    # Clean up content - remove markdown code blocks if present
+                    if content.startswith("```"):
+                        content = content.split("```")[1]
+                        if content.startswith("json"):
+                            content = content[4:]
+                    
+                    try:
+                        clean_products = json.loads(content)
+                        if isinstance(clean_products, list):
+                            logger.info(f"✅ GROQ deduped to {len(clean_products)} unique products")
+                            return clean_products
+                        else:
+                            logger.error(f"❌ GROQ returned non-list: {content}")
+                            return filtered_products  # Return original if dedup fails
+                    except json.JSONDecodeError as json_error:
+                        logger.error(f"❌ Failed to parse GROQ dedup response: {json_error}")
+                        return filtered_products  # Return original if dedup fails
+                else:
+                    logger.error(f"❌ GROQ dedup API error: {response.status_code}")
+                    return filtered_products  # Return original if dedup fails
+                    
+        except Exception as clean_error:
+            logger.error(f"💥 Error cleaning products: {clean_error}")
+            return raw_products  # Return original if cleaning fails
+    
+    def _clean_timestamp(self, timestamp: str) -> str:
+        """SIMPLE timestamp cleaner: [0s (00:00)-5s (00:05)] → 00:00-00:05"""
+        if not timestamp:
+            return None
+            
+        import re
+        # Extract MM:SS format from complex timestamp
+        time_match = re.search(r'\((\d{2}:\d{2})\)[^)]*\((\d{2}:\d{2})\)', str(timestamp))
+        if time_match:
+            start_time = time_match.group(1)
+            end_time = time_match.group(2)
+            return f"{start_time}-{end_time}"
+        
+        # If no match, return the original timestamp
+        return timestamp
+    
     async def _generate_product_links(self, task_id: str, products_with_timestamps: List[Dict[str, str]], amazon_affiliate_code: Optional[str] = None):
         """Generate affiliate links - ONE TOP RESULT per original product"""
         try:
@@ -333,9 +470,9 @@ CRITICAL RULES:
                         # Get the TOP (first) result
                         top_link = link_result.product_links[0]
                         
-                        # Create ProductLink with timestamp
+                        # Create ProductLink with CLEAN KEYWORD NAME and timestamp
                         product = ProductLink(
-                            product_name=top_link.product_name,
+                            product_name=product_name,  # Use the clean keyword name, not the messy Amazon title
                             product_url=top_link.product_url,
                             affiliate_url=top_link.affiliate_url,
                             platform=top_link.platform,
@@ -343,7 +480,7 @@ CRITICAL RULES:
                             rating=top_link.rating,
                             image_url=top_link.image_url,
                             availability=top_link.availability,
-                            timestamp=timestamp
+                            timestamp=self._clean_timestamp(timestamp)  # Clean the timestamp format
                         )
                         
                         logger.info(f"✅ Found TOP result for '{product_name}': {top_link.product_name}")
