@@ -87,18 +87,18 @@ class TwelveLabsAPIClient:
         
         try:
             # 1. Generate titles, topics, and hashtags
-            if "gist" in analysis_types:
-                print("Generating titles, topics, and hashtags...")
-                gist_result = self.client.gist(
-                    video_id=video_id,
-                    types=["title", "topic", "hashtag"]
-                )
-                results["gist"] = {
-                    "title": gist_result.title,
-                    "topics": gist_result.topics,
-                    "hashtags": gist_result.hashtags,
-                    "usage": gist_result.usage
-                }
+            # if "gist" in analysis_types:
+            #     print("Generating titles, topics, and hashtags...")
+            #     gist_result = self.client.gist(
+            #         video_id=video_id,
+            #         types=["title", "topic", "hashtag"]
+            #     )
+            #     results["gist"] = {
+            #         "title": gist_result.title,
+            #         "topics": gist_result.topics,
+            #         "hashtags": gist_result.hashtags,
+            #         "usage": gist_result.usage
+            #     }
 
             # 2. Generate summary
             if "summary" in analysis_types:
@@ -120,7 +120,7 @@ class TwelveLabsAPIClient:
                 chapters_result = self.client.summarize(
                     video_id=video_id,
                     type="chapter",
-                    prompt="Break down this video into logical chapters with clear titles and summaries for each section.",
+                    prompt="Break down this video into logical chapters with clear titles and summaries for each section. Also give them suggestions on how they can monetize the content using some of the content montization ideas which regards to the features that are available in the stan store",
                     temperature=0.7
                 )
                 results["chapters"] = {
@@ -147,7 +147,7 @@ class TwelveLabsAPIClient:
                 print("Performing open-ended analysis...")
                 analysis_result = self.client.analyze(
                     video_id=video_id,
-                    prompt="Analyze this video comprehensively. Include: 1) Main content and themes, 2) Visual elements and objects detected, 3) Audio characteristics, 4) Target audience, 5) Content quality assessment, 6) Engagement potential, 7) Key insights and takeaways.",
+                    prompt="Analyze this video comprehensively. Include: 1) Main content and themes, 2) Visual elements and objects detected, 3) Audio characteristics, 4) Target audience, 5) Content quality assessment, 6) Engagement potential, 7) Key insights and takeaways. 8) Any Products/things that the viewer can buy that has been shown it should be a very particular named or shown item and a list of items consumer items that were shown with time stamps. 9) Also give them suggestions on how they can monetize the content using some of the content monetization ideas which regards to the features that are available in the stanstore",
                     temperature=0.7
                 )
                 results["analysis"] = {

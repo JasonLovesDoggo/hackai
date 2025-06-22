@@ -125,11 +125,7 @@ class VideoAnalyzer:
         }
         
         try:
-            # Parse gist data (titles, topics, hashtags)
-            if "gist" in analysis_data:
-                gist_data = analysis_data["gist"]
-                parsed["context"] = self._create_context_from_gist(gist_data)
-            
+                       
             # Parse summary data
             if "summary" in analysis_data:
                 summary_data = analysis_data["summary"]
@@ -172,9 +168,6 @@ class VideoAnalyzer:
                 if parsed["context"]:
                     parsed["context"] = self._enhance_context_with_analysis(parsed["context"], analysis_text)
             
-            # Generate transcript from analysis if not available
-            if not parsed["transcript"]:
-                parsed["transcript"] = self._generate_transcript_from_analysis(analysis_data)
             
         except Exception as e:
             print(f"Error parsing analysis data: {str(e)}")
@@ -237,7 +230,7 @@ class VideoAnalyzer:
                 context = VideoContext()
             
             # Extract additional insights from analysis text
-            context.content_summary = analysis_text[:500] + "..." if len(analysis_text) > 500 else analysis_text
+            context.content_summary = analysis_text[:500] + "" if len(analysis_text) > 500 else analysis_text
             
             # Try to extract target audience from analysis
             if "audience" in analysis_text.lower():
@@ -263,7 +256,7 @@ class VideoAnalyzer:
         if summary_text:
             segments.append(TranscriptSegment(
                 start=0,
-                end=60,  # Assume 1 minute for summary
+                end=0,  # Assume 1 minute for summary
                 text=summary_text,
                 confidence=0.8
             ))
