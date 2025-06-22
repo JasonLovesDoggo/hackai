@@ -13,6 +13,7 @@ dependencies = [
     "python-multipart>=0.0.6",
     "twelvelabs>=0.4.10",
     "pytube>=15.0.0",
+    "beautifulsoup4>=4.13.4",
 ]
 
 [dependency-groups]
