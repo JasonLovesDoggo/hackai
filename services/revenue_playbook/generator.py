@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from services.youtube_scraper.scraper import YouTubeScraper
 from services.affiliate_discovery.groq_client import GroqClient
 from .models import RevenuePlaybook, PlaybookSection
@@ -18,61 +18,67 @@ class RevenuePlaybookGenerator:
         """Generate a comprehensive revenue playbook for a YouTube channel"""
         try:
             logger.info(f"Generating revenue playbook for channel: {channel_url}")
-            
+
             # Check cache first (1 hour TTL)
-            cached_result = simple_cache.get("revenue_playbook", channel_url=channel_url)
+            cached_result = simple_cache.get(
+                "revenue_playbook", channel_url=channel_url
+            )
             if cached_result:
                 logger.info("Returning cached revenue playbook")
                 return RevenuePlaybook(**cached_result)
-            
+
             # Get channel health data
             channel_data = await self.youtube_scraper.get_channel_health(channel_url)
-            
+
             if not channel_data or "channel" not in channel_data:
                 raise ValueError("Could not fetch channel data")
-            
+
             channel_info = channel_data["channel"]
             content_analysis = channel_data.get("content_analysis", {})
             health_analysis = channel_data.get("health_analysis", {})
-            
-            logger.info(f"Channel: {channel_info.get('name')} ({channel_info.get('subscribers')} subscribers)")
-            
+
+            logger.info(
+                f"Channel: {channel_info.get('name')} ({channel_info.get('subscribers')} subscribers)"
+            )
+
             # Generate playbook using GROQ
             playbook_data = await self._generate_playbook_with_groq(
                 channel_info, content_analysis, health_analysis
             )
-            
+
             playbook = RevenuePlaybook(
                 title=playbook_data["title"],
                 sections=playbook_data["sections"],
                 channel_id=channel_info.get("id"),
                 channel_name=channel_info.get("name"),
-                generated_for_subscriber_count=channel_info.get("subscribers")
+                generated_for_subscriber_count=channel_info.get("subscribers"),
             )
-            
+
             # Cache the result for 1 hour (3600 seconds)
-            simple_cache.set("revenue_playbook", playbook.dict(), 3600, channel_url=channel_url)
-            
+            simple_cache.set(
+                "revenue_playbook", playbook.dict(), 3600, channel_url=channel_url
+            )
+
             return playbook
-            
+
         except Exception as e:
             logger.error(f"Error generating revenue playbook: {e}")
             raise
 
     async def _generate_playbook_with_groq(
-        self, 
-        channel_info: Dict[str, Any], 
-        content_analysis: Dict[str, Any], 
-        health_analysis: Dict[str, Any]
+        self,
+        channel_info: Dict[str, Any],
+        content_analysis: Dict[str, Any],
+        health_analysis: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Use GROQ to generate a personalized revenue playbook"""
-        
+
         subscribers = channel_info.get("subscribers", 0)
         content_type = content_analysis.get("content_type", "general")
         upload_style = content_analysis.get("upload_style", "irregular")
         health_score = health_analysis.get("health_score", 50)
         monetization_ready = health_analysis.get("monetization_ready", False)
-        
+
         # Determine subscriber tier for tailored advice
         if subscribers < 1000:
             tier = "starting"
@@ -82,7 +88,7 @@ class RevenuePlaybookGenerator:
             tier = "established"
         else:
             tier = "large"
-        
+
         prompt = f"""
 Create a personalized revenue playbook for a YouTube channel with the following details:
 
@@ -154,7 +160,7 @@ CRITICAL REQUIREMENTS:
 
         try:
             import httpx
-            
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     f"{self.groq_client.base_url}/chat/completions",
@@ -163,32 +169,29 @@ CRITICAL REQUIREMENTS:
                         "model": "llama-3.3-70b-versatile",
                         "messages": [
                             {
-                                "role": "system", 
-                                "content": "You are a YouTube monetization expert. Create detailed, actionable revenue playbooks. Return only valid JSON."
+                                "role": "system",
+                                "content": "You are a YouTube monetization expert. Create detailed, actionable revenue playbooks. Return only valid JSON.",
                             },
-                            {
-                                "role": "user", 
-                                "content": prompt
-                            }
+                            {"role": "user", "content": prompt},
                         ],
                         "temperature": 0.3,
-                        "max_tokens": 2000
-                    }
+                        "max_tokens": 2000,
+                    },
                 )
-                
+
                 if response.status_code == 200:
                     result = response.json()
                     content = result["choices"][0]["message"]["content"].strip()
-                    
+
                     # Clean up content - remove markdown code blocks if present
                     if content.startswith("```"):
                         content = content.split("```")[1]
                         if content.startswith("json"):
                             content = content[4:]
-                    
+
                     try:
                         playbook_data = json.loads(content)
-                        
+
                         # Convert to our models
                         sections = []
                         for section_data in playbook_data["sections"]:
@@ -196,15 +199,12 @@ CRITICAL REQUIREMENTS:
                                 id=section_data["id"],
                                 heading=section_data["heading"],
                                 body_md=section_data["body_md"],
-                                actions=section_data["actions"]
+                                actions=section_data["actions"],
                             )
                             sections.append(section)
-                        
-                        return {
-                            "title": playbook_data["title"],
-                            "sections": sections
-                        }
-                        
+
+                        return {"title": playbook_data["title"], "sections": sections}
+
                     except json.JSONDecodeError as e:
                         logger.error(f"Failed to parse GROQ playbook response: {e}")
                         logger.debug(f"Raw GROQ content: {content}")
@@ -212,7 +212,7 @@ CRITICAL REQUIREMENTS:
                 else:
                     logger.error(f"GROQ API error: {response.status_code}")
                     raise ValueError("Failed to generate playbook")
-                    
+
         except Exception as e:
             logger.error(f"Error calling GROQ for playbook generation: {e}")
             raise

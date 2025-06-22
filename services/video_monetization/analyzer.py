@@ -97,9 +97,9 @@ class VideoMonetizationAnalyzer:
             current_dir = os.path.dirname(os.path.abspath(__file__))
             project_root = os.path.join(current_dir, "..", "..")
             project_root = os.path.abspath(project_root)
-            print(f'{project_root=}')
+            print(f"{project_root=}")
             cache_file = os.path.join(project_root, "12.json")
-            
+
             logger.debug(f"Looking for cache file at: {cache_file}")
 
             if os.path.exists(cache_file):
@@ -300,20 +300,26 @@ class VideoMonetizationAnalyzer:
             logger.debug(f"Video result structure debug: {type(video_result)}")
             if isinstance(video_result, dict):
                 logger.debug(f"Video result keys: {list(video_result.keys())}")
-                
+
                 if "_internal_analysis" in video_result:
                     analysis_text = video_result["_internal_analysis"]
                     logger.debug("Using _internal_analysis field")
                 elif "analysis" in video_result:
                     analysis_data = video_result["analysis"]
                     logger.debug(f"Analysis data type: {type(analysis_data)}")
-                    logger.debug(f"Analysis data keys: {list(analysis_data.keys()) if isinstance(analysis_data, dict) else 'Not a dict'}")
-                    
+                    logger.debug(
+                        f"Analysis data keys: {list(analysis_data.keys()) if isinstance(analysis_data, dict) else 'Not a dict'}"
+                    )
+
                     if isinstance(analysis_data, dict):
                         # Handle cached format: analysis.analysis.analysis
-                        if "analysis" in analysis_data and isinstance(analysis_data["analysis"], dict):
+                        if "analysis" in analysis_data and isinstance(
+                            analysis_data["analysis"], dict
+                        ):
                             inner_analysis = analysis_data["analysis"]
-                            logger.debug(f"Inner analysis keys: {list(inner_analysis.keys())}")
+                            logger.debug(
+                                f"Inner analysis keys: {list(inner_analysis.keys())}"
+                            )
                             if "analysis" in inner_analysis:
                                 analysis_text = inner_analysis["analysis"]
                                 logger.debug("Using analysis.analysis.analysis field")
@@ -322,7 +328,9 @@ class VideoMonetizationAnalyzer:
                                 analysis_text = str(inner_analysis)
                                 logger.debug("Using stringified inner analysis")
                         # Handle cached format: analysis.analysis as string
-                        elif "analysis" in analysis_data and isinstance(analysis_data["analysis"], str):
+                        elif "analysis" in analysis_data and isinstance(
+                            analysis_data["analysis"], str
+                        ):
                             analysis_text = analysis_data["analysis"]
                             logger.debug("Using analysis.analysis string field")
                         # Handle any other analysis format
@@ -341,11 +349,15 @@ class VideoMonetizationAnalyzer:
 
             # Log a preview of the analysis text to see what we're working with
             try:
-                preview = analysis_text[:500] if len(analysis_text) > 500 else analysis_text
+                preview = (
+                    analysis_text[:500] if len(analysis_text) > 500 else analysis_text
+                )
                 logger.info(f"Analysis text preview: {preview}...")
             except Exception as e:
                 logger.error(f"Error creating analysis preview: {e}")
-                logger.info(f"Analysis text type: {type(analysis_text)}, length: {len(analysis_text)}")
+                logger.info(
+                    f"Analysis text type: {type(analysis_text)}, length: {len(analysis_text)}"
+                )
 
             # FUCK THE REGEX - JUST USE GROQ ON THE FULL TEXT DIRECTLY
             logger.info(
@@ -368,8 +380,14 @@ class VideoMonetizationAnalyzer:
                     "GROQ EXTRACTION FAILED - RETURNED EMPTY ARRAY - THIS SHIT DON'T WOOOOOOOORK!"
                 )
                 try:
-                    debug_text = analysis_text[:1000] if len(analysis_text) > 1000 else analysis_text
-                    logger.error(f"DEBUG: GROQ was given this analysis text: {debug_text}...")
+                    debug_text = (
+                        analysis_text[:1000]
+                        if len(analysis_text) > 1000
+                        else analysis_text
+                    )
+                    logger.error(
+                        f"DEBUG: GROQ was given this analysis text: {debug_text}..."
+                    )
                 except Exception as slice_error:
                     logger.error(f"Error creating debug slice: {slice_error}")
                     logger.error(f"Analysis text type: {type(analysis_text)}")
@@ -383,6 +401,7 @@ class VideoMonetizationAnalyzer:
             if isinstance(video_result, dict):
                 logger.error(f"Video result keys: {list(video_result.keys())}")
             import traceback
+
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return []
 
