@@ -13,8 +13,7 @@ revenue_playbook_generator = RevenuePlaybookGenerator()
 
 @router.get("/generate", response_model=RevenuePlaybook)
 async def generate_revenue_playbook(
-    channel_url: str = Query(..., description="YouTube channel URL, handle, or ID"),
-    override: bool = Query(False, description="Skip cache and force fresh analysis")
+    channel_url: str = Query(..., description="YouTube channel URL, handle, or ID")
 ):
     """
     Generate a personalized 30-day revenue playbook for a YouTube channel.
@@ -30,7 +29,7 @@ async def generate_revenue_playbook(
     try:
         logger.info(f"Generating revenue playbook for: {channel_url}")
         
-        playbook = await revenue_playbook_generator.generate_playbook(channel_url, override=override)
+        playbook = await revenue_playbook_generator.generate_playbook(channel_url)
         
         logger.info(f"Successfully generated playbook: '{playbook.title}' for {playbook.channel_name}")
         

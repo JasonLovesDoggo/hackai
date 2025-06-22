@@ -13,13 +13,13 @@ class RevenuePlaybookGenerator:
         self.youtube_scraper = YouTubeScraper()
         self.groq_client = GroqClient()
 
-    async def generate_playbook(self, channel_url: str, override: bool = False) -> RevenuePlaybook:
+    async def generate_playbook(self, channel_url: str) -> RevenuePlaybook:
         """Generate a comprehensive revenue playbook for a YouTube channel"""
         try:
             logger.info(f"Generating revenue playbook for channel: {channel_url}")
             
             # Get channel health data
-            channel_data = await self.youtube_scraper.get_channel_health(channel_url, override=override)
+            channel_data = await self.youtube_scraper.get_channel_health(channel_url)
             
             if not channel_data or "channel" not in channel_data:
                 raise ValueError("Could not fetch channel data")
