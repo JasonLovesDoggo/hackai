@@ -145,15 +145,26 @@ class TwelveLabsAPIClient:
             #         "usage": gist_result.usage
             #     }
 
-            # 2. Generate summary
+            # 2. Generate summary - MAKE IT ASYNC!
             if "summary" in analysis_types:
-                print("Generating video summary...")
-                summary_result = self.client.summarize(
-                    video_id=video_id,
-                    type="summary",
-                    prompt="Provide a comprehensive summary of this video content, including main topics, key points, and important details.",
-                    temperature=0.7,
-                )
+                print("Generating ASYNC video summary...")
+                # Run the blocking summary in a thread pool to keep it async
+                import asyncio
+                import concurrent.futures
+                
+                def run_summary():
+                    return self.client.summarize(
+                        video_id=video_id,
+                        type="summary",
+                        prompt="Provide a comprehensive summary of this video content, including main topics, key points, and important details.",
+                        temperature=0.7,
+                    )
+                
+                # Run in thread pool to avoid blocking the event loop
+                loop = asyncio.get_event_loop()
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    summary_result = await loop.run_in_executor(executor, run_summary)
+                
                 results["summary"] = {
                     "summary": summary_result.summary,
                     "usage": summary_result.usage,
@@ -187,14 +198,25 @@ class TwelveLabsAPIClient:
                     "usage": highlights_result.usage,
                 }
 
-            # 5. Open-ended analysis
+            # 5. Open-ended analysis - MAKE IT ASYNC!
             if "analysis" in analysis_types:
-                print("Performing open-ended analysis...")
-                analysis_result = self.client.analyze(
-                    video_id=video_id,
-                    prompt="Analyze this video comprehensively. Include: 1) Main content and themes, 2) Visual elements and objects detected, 3) Audio characteristics, 4) Target audience, 5) Content quality assessment, 6) Engagement potential, 7) Key insights and takeaways. 8) Any Products/things that the viewer can buy that has been shown it should be a very particular named or shown item and a list of items consumer items that were shown with time stamps. 9) Also give them suggestions on how they can monetize the content using some of the content monetization ideas which regards to the features that are available in the stanstore",
-                    temperature=0.7,
-                )
+                print("Performing ASYNC open-ended analysis...")
+                # Run the blocking analysis in a thread pool to keep it async
+                import asyncio
+                import concurrent.futures
+                
+                def run_analysis():
+                    return self.client.analyze(
+                        video_id=video_id,
+                        prompt="Analyze this video comprehensively. Include: 1) Main content and themes, 2) Visual elements and objects detected, 3) Audio characteristics, 4) Target audience, 5) Content quality assessment, 6) Engagement potential, 7) Key insights and takeaways. 8) Any Products/things that the viewer can buy that has been shown it should be a very particular named or shown item and a list of items consumer items that were shown with time stamps. 9) Also give them suggestions on how they can monetize the content using some of the content monetization ideas which regards to the features that are available in the stanstore",
+                        temperature=0.7,
+                    )
+                
+                # Run in thread pool to avoid blocking the event loop
+                loop = asyncio.get_event_loop()
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    analysis_result = await loop.run_in_executor(executor, run_analysis)
+                
                 results["analysis"] = {
                     "analysis": analysis_result.data,
                     "usage": analysis_result.usage,

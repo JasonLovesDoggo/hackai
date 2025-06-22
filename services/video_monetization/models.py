@@ -63,3 +63,17 @@ class VideoMonetizationResult(BaseModel):
     
     # Processing timestamps for tracking
     timestamps: Dict[str, datetime] = {}
+    
+    def dict(self, **kwargs):
+        """Custom dict method to filter out internal analysis from end user response"""
+        data = super().dict(**kwargs)
+        
+        # Remove internal analysis from video_analysis if present
+        if data.get("video_analysis") and isinstance(data["video_analysis"], dict):
+            video_analysis = data["video_analysis"].copy()
+            # Remove internal analysis field - users don't need to see this
+            if "_internal_analysis" in video_analysis:
+                del video_analysis["_internal_analysis"]
+            data["video_analysis"] = video_analysis
+        
+        return data
