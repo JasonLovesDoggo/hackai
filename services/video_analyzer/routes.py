@@ -1,86 +1,69 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from typing import List, Optional
 import os
 import tempfile
-
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from fastapi.responses import JSONResponse
+from typing import List
 from .models import VideoAnalysisRequest, VideoAnalysisResult
 from .analyzer import VideoAnalyzer
 
-router = APIRouter(prefix="/video-analysis", tags=["video-analysis"])
+router = APIRouter(prefix="/video-analysis", tags=["Video Analysis"])
 
-# Lazy initialization
-_analyzer = None
-
-def get_analyzer():
-    global _analyzer
-    if _analyzer is None:
-        _analyzer = VideoAnalyzer()
-    return _analyzer
-
-@router.post("/analyze-file", response_model=VideoAnalysisResult)
-def analyze_video_file(
+@router.post("/analyze", response_model=VideoAnalysisResult)
+async def analyze_video(
     file: UploadFile = File(...),
-    features: Optional[str] = Form("visual,audio")
+    features: str = Form("visual,audio")  # Default features
 ):
     """
-    Upload and analyze a video file using Twelve Labs API
+    Analyze a video file and return comprehensive results including:
+    - Transcript with timing
+    - Visual object detection
+    - Audio analysis
+    - Scene analysis
+    - Actionable insights
     """
-    try:
-        # Validate file type
-        if not file.content_type or not file.content_type.startswith('video/'):
-            raise HTTPException(
-                status_code=400,
-                detail="Uploaded file must be a video"
-            )
-        
-        # Save uploaded file to temporary location
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.mp4')
-        os.close(temp_fd)
-        
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith('video/'):
+        raise HTTPException(status_code=400, detail="File must be a video")
+    
+    # Parse features
+    feature_list = [f.strip() for f in features.split(',')]
+    request = VideoAnalysisRequest(features=feature_list)
+    
+    # Create temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file.filename.split('.')[-1]}") as temp_file:
         try:
-            # Write uploaded file to temp location
-            with open(temp_path, 'wb') as f:
-                content = file.file.read()
-                f.write(content)
+            # Write uploaded file to temporary file
+            content = await file.read()
+            temp_file.write(content)
+            temp_file.flush()
             
-            # Parse features
-            feature_list = [f.strip() for f in features.split(",") if f.strip()]
-            
-            # Create request
-            request = VideoAnalysisRequest(features=feature_list)
-            
-            # Analyze video
-            analyzer = get_analyzer()
-            result = analyzer.analyze_video(temp_path, request)
-            
-            if result.status == "failed":
-                raise HTTPException(
-                    status_code=400,
-                    detail=result.error_message or "Video analysis failed"
-                )
+            # Analyze the video
+            analyzer = VideoAnalyzer()
+            result = analyzer.analyze_video(temp_file.name, request)
             
             return result
             
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
         finally:
             # Clean up temporary file
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Error analyzing video file: {str(e)}"
-        )
+            try:
+                os.unlink(temp_file.name)
+            except:
+                pass
 
-@router.get("/supported-features")
-def get_supported_features():
-    """Get list of supported analysis features"""
+@router.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "service": "video-analysis"}
+
+@router.get("/features")
+async def get_available_features():
+    """Get available analysis features"""
     return {
-        "features": [
-            "visual",
-            "audio"
+        "available_features": [
+            "visual",      # Visual object detection
+            "audio"        # Audio analysis and transcript
         ],
-        "description": "Available features for video analysis using Twelve Labs marengo2.7 model"
+        "description": "These features are supported by the Twelve Labs API"
     }
