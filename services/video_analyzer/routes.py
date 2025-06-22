@@ -125,10 +125,8 @@ async def get_supported_formats():
     }
 
 
-
-
-
 # cool stuff below !!
+
 
 @router.post("/upload")
 async def upload_video_only(file: UploadFile = File(...)):

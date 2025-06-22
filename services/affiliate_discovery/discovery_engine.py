@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from .models import AffiliateProgram, ProductSearchResult, SearchRequest
 from .groq_client import GroqClient
 from .overrides import override_manager

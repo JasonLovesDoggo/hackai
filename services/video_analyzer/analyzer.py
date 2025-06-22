@@ -184,7 +184,6 @@ class VideoAnalyzer:
 
         return parsed
 
-
     def _parse_chapters_to_scenes(
         self, chapters: List[Dict[str, Any]]
     ) -> List[SceneAnalysis]:
@@ -438,7 +437,7 @@ class VideoAnalyzer:
 
         # Return top 5 most frequent words
         sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
-        return [word for word,  in sorted_words[:5]]
+        return [word for (word,) in sorted_words[:5]]
 
     def _determine_content_type(
         self, text: str, visual_objects: List[VisualObject]

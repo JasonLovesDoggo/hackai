@@ -2,7 +2,7 @@ import os
 import tempfile
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from typing import Optional
-from .models import VideoMonetizationRequest, VideoMonetizationResult
+from .models import VideoMonetizationResult
 from .analyzer import video_monetization_analyzer
 
 router = APIRouter(prefix="/video-monetization", tags=["Video Monetization"])
@@ -12,18 +12,18 @@ router = APIRouter(prefix="/video-monetization", tags=["Video Monetization"])
 async def start_video_monetization_analysis(
     file: UploadFile = File(...),
     youtube_channel_url: Optional[str] = Form(None),
-    amazon_affiliate_code: Optional[str] = Form(None)
+    amazon_affiliate_code: Optional[str] = Form(None),
 ):
     """
     Start comprehensive video monetization analysis workflow.
-    
+
     Flow:
     1. Upload and analyze video content
     2. Extract product keywords from analysis
     3. Generate affiliate links for products
     4. Fetch YouTube channel context (if URL provided)
     5. Generate AI-powered monetization strategies
-    
+
     Returns task ID for status tracking.
     """
     # Validate file type
@@ -43,9 +43,7 @@ async def start_video_monetization_analysis(
 
         # Start analysis workflow (background task will handle cleanup)
         task_id = await video_monetization_analyzer.start_analysis(
-            temp_file.name, 
-            youtube_channel_url,
-            amazon_affiliate_code
+            temp_file.name, youtube_channel_url, amazon_affiliate_code
         )
 
         # Get the task status immediately
@@ -58,20 +56,22 @@ async def start_video_monetization_analysis(
             os.unlink(temp_file.name)
         except:
             pass
-        raise HTTPException(status_code=500, detail=f"Analysis startup failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Analysis startup failed: {str(e)}"
+        )
 
 
 @router.get("/status/{task_id}", response_model=VideoMonetizationResult)
 async def get_analysis_status(task_id: str):
     """
     Get current status and results of video monetization analysis.
-    
+
     Status values:
     - "pending": Analysis queued but not started
     - "processing": Analysis in progress
     - "completed": Analysis finished successfully
     - "failed": Analysis encountered an error
-    
+
     Example completed response:
     {
         "task_id": "abc123-def456",
@@ -86,7 +86,7 @@ async def get_analysis_status(task_id: str):
         "products": [
             {
                 "product_name": "Logitech MX Master 3s Mouse",
-                "product_url": "https://www.amazon.com/dp/B0CX23PHFD", 
+                "product_url": "https://www.amazon.com/dp/B0CX23PHFD",
                 "affiliate_url": "https://www.amazon.com/dp/B0CX23PHFD?tag=yourcode-20",
                 "platform": "amazon",
                 "price": "$99.99",
@@ -95,7 +95,7 @@ async def get_analysis_status(task_id: str):
             {
                 "product_name": "Celsius Energy Drink",
                 "product_url": "https://www.amazon.com/dp/B0D2R5DR1M",
-                "affiliate_url": "https://www.amazon.com/dp/B0D2R5DR1M?tag=yourcode-20", 
+                "affiliate_url": "https://www.amazon.com/dp/B0D2R5DR1M?tag=yourcode-20",
                 "platform": "amazon",
                 "price": "$24.99",
                 "timestamp": "5s-13s"
@@ -109,7 +109,7 @@ async def get_analysis_status(task_id: str):
                 "description": "Create a course teaching optimal workspace setup",
                 "implementation_steps": ["Plan curriculum", "Record videos", "Launch on platform"],
                 "estimated_effort": "high",
-                "estimated_timeline": "2-3 months", 
+                "estimated_timeline": "2-3 months",
                 "potential_revenue": "high"
             }
         ],
@@ -127,10 +127,10 @@ async def get_analysis_status(task_id: str):
     }
     """
     result = video_monetization_analyzer.get_task_status(task_id)
-    
+
     if not result:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-    
+
     return result
 
 
@@ -141,7 +141,7 @@ async def list_all_tasks():
     In production, this should be protected or removed.
     """
     tasks = video_monetization_analyzer.list_tasks()
-    
+
     # Return summary of tasks
     task_summaries = {}
     for task_id, task in tasks.items():
@@ -154,13 +154,10 @@ async def list_all_tasks():
             "product_count": len(task.products),
             "strategy_count": len(task.monetization_strategies),
             "has_channel_context": bool(task.channel_context),
-            "error_message": task.error_message
+            "error_message": task.error_message,
         }
-    
-    return {
-        "total_tasks": len(tasks),
-        "tasks": task_summaries
-    }
+
+    return {"total_tasks": len(tasks), "tasks": task_summaries}
 
 
 @router.get("/workflow-info")
@@ -174,32 +171,41 @@ async def get_workflow_info():
                 "step": 1,
                 "name": "Video Analysis",
                 "description": "Analyze video content using Twelve Labs API for visual objects, transcription, and insights",
-                "outputs": ["video_metadata", "transcript", "visual_analysis", "context"]
+                "outputs": [
+                    "video_metadata",
+                    "transcript",
+                    "visual_analysis",
+                    "context",
+                ],
             },
             {
                 "step": 2,
                 "name": "Product Extraction",
                 "description": "Extract product keywords from video analysis using regex pattern matching",
-                "outputs": ["product_keywords"]
+                "outputs": ["product_keywords"],
             },
             {
                 "step": 3,
                 "name": "Affiliate Link Generation",
                 "description": "Generate affiliate links for extracted products using real web scraping",
-                "outputs": ["products", "affiliate_links"]
+                "outputs": ["products", "affiliate_links"],
             },
             {
                 "step": 4,
                 "name": "Channel Context (Optional)",
                 "description": "Fetch YouTube channel health data if channel URL provided",
-                "outputs": ["channel_context", "subscriber_count", "content_type"]
+                "outputs": ["channel_context", "subscriber_count", "content_type"],
             },
             {
                 "step": 5,
                 "name": "Monetization Strategy Generation",
                 "description": "Generate AI-powered monetization strategies using GROQ based on content analysis",
-                "outputs": ["monetization_strategies", "implementation_steps", "revenue_estimates"]
-            }
+                "outputs": [
+                    "monetization_strategies",
+                    "implementation_steps",
+                    "revenue_estimates",
+                ],
+            },
         ],
         "supported_file_formats": ["MP4", "AVI", "MOV", "WMV", "FLV", "WebM", "MKV"],
         "example_strategies": [
@@ -209,7 +215,15 @@ async def get_workflow_info():
             "Merchandise creation",
             "Coaching/consulting services",
             "YouTube memberships and Patreon",
-            "Live events and workshops"
+            "Live events and workshops",
         ],
-        "affiliate_platforms": ["Amazon", "eBay", "Walmart", "Target", "ShareASale", "CJ Affiliate", "ClickBank"]
+        "affiliate_platforms": [
+            "Amazon",
+            "eBay",
+            "Walmart",
+            "Target",
+            "ShareASale",
+            "CJ Affiliate",
+            "ClickBank",
+        ],
     }

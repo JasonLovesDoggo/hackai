@@ -43,11 +43,11 @@ class GroqClient:
         """Search for real products and verify URLs work"""
         try:
             # Search Amazon directly - most reliable method
-            products = await self._search_amazon_directly(" ".join(keywords))
+            products = await self._search_amazon_directly("".join(keywords))
 
             if not products:
                 # Fallback to Bing if Amazon fails
-                products = await self._search_bing(" ".join(keywords))
+                products = await self._search_bing("".join(keywords))
 
             # Verify URLs actually work (no 404s)
             verified_products = await self._verify_product_urls(products)

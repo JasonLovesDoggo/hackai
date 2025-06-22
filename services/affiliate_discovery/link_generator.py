@@ -100,35 +100,7 @@ class LinkGenerator:
         self, request: LinkGenerationRequest, platforms: List[str]
     ) -> List[ProductLink]:
         """Search for products and generate affiliate links"""
-
-        search_prompt = f"""
-Find specific products for: {", ".join(request.keywords)}
-
-Return ONLY a JSON array with actual products from these platforms: {", ".join(platforms)}
-
-Format:
-[
-  {{
-    "product_name": "Uniqlo Men's Red T-Shirt Cotton Crew Neck",
-    "product_url": "https://www.uniqlo.com/us/en/products/E12345-000",
-    "platform": "uniqlo",
-    "price": "$12.90",
-    "rating": 4.5,
-    "image_url": "https://uniqlo.com/images/product.jpg",
-    "availability": "In Stock"
-  }}
-]
-
-Include real products from:
-- Amazon: specific product ASINs/URLs
-- eBay: actual listing URLs  
-- Walmart: real product pages
-- Target: specific product URLs
-- Uniqlo: direct product links
-
-Return ONLY the JSON array, no other text.
-        """
-
+        
         try:
             # Try GROQ tool calling first
             search_result = await self.groq_client.search_products_with_tools(
