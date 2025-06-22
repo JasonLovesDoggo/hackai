@@ -64,7 +64,7 @@ class TwelveLabsAPIClient:
         while True:
             # Get task status
             task = self.client.task.retrieve(task_id)
-            print(f"  Status: {task.status}")
+            print(f"Status: {task.status}")
             
             if task.status == "ready":
                 return {
@@ -96,9 +96,9 @@ class TwelveLabsAPIClient:
             print("Waiting for video upload and indexing to complete...")
 
             def on_task_update(task):
-                print(f"  Status: {task.status}")
+                print(f"Status: {task.status}")
                 if hasattr(task, "process") and task.process:
-                    print(f"  Progress: {task.process.percentage}%")
+                    print(f"Progress: {task.process.percentage}%")
 
             task.wait_for_done(sleep_interval=5, callback=on_task_update)
 
@@ -390,7 +390,7 @@ class TwelveLabsAPIClient:
                                         }
                                     )
                     except Exception as e:
-                        print(f"  Visual search failed: {str(e)}")
+                        print(f"Visual search failed: {str(e)}")
 
                     # Approach 2: Search for specific common objects
                     if not visual_objects:
@@ -447,7 +447,7 @@ class TwelveLabsAPIClient:
                                 if hasattr(result, "text"):
                                     text_detected.append(result.text)
                     except Exception as e:
-                        print(f"  Text search failed: {str(e)}")
+                        print(f"Text search failed: {str(e)}")
 
                     # Create frame analysis
                     frame = {
