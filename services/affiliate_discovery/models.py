@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-from enum import Enum
+from typing import List, Optional
 
 
 class AffiliateProgram(BaseModel):
@@ -34,7 +33,9 @@ class SearchRequest(BaseModel):
 class OverrideEntry(BaseModel):
     keywords: List[str]
     forced_programs: List[AffiliateProgram]
-    replace_all: bool = False  # If True, replaces all results; if False, adds to results
+    replace_all: bool = (
+        False  # If True, replaces all results; if False, adds to results
+    )
 
 
 class AffiliateCodes(BaseModel):

@@ -5,11 +5,13 @@ from datetime import datetime
 
 class VideoAnalysisRequest(BaseModel):
     """Request model for video analysis"""
+
     features: List[str] = ["visual", "audio"]
 
 
 class TranscriptSegment(BaseModel):
     """Individual transcript segment with timing"""
+
     start: float
     end: float
     text: str
@@ -18,6 +20,7 @@ class TranscriptSegment(BaseModel):
 
 class VisualObject(BaseModel):
     """Detected visual object or scene"""
+
     label: str
     confidence: float
     start: float
@@ -27,6 +30,7 @@ class VisualObject(BaseModel):
 
 class SceneAnalysis(BaseModel):
     """Scene/chapter analysis"""
+
     start: float
     end: float
     description: str
@@ -36,6 +40,7 @@ class SceneAnalysis(BaseModel):
 
 class FrameAnalysis(BaseModel):
     """Frame-by-frame analysis for a specific time interval"""
+
     start_time: float
     end_time: float
     visual_objects: List[VisualObject] = []
@@ -47,6 +52,7 @@ class FrameAnalysis(BaseModel):
 
 class TimeBasedAnalysis(BaseModel):
     """Time-based analysis with frame breakdowns"""
+
     interval_seconds: int = 5
     total_frames: int
     frames: List[FrameAnalysis] = []
@@ -55,6 +61,7 @@ class TimeBasedAnalysis(BaseModel):
 
 class VideoContext(BaseModel):
     """Context and analysis of the video content"""
+
     content_summary: Optional[str] = ""
     main_topics: List[str] = []
     content_type: Optional[str] = "unknown"
@@ -69,6 +76,7 @@ class VideoContext(BaseModel):
 
 class VideoAnalysisResult(BaseModel):
     """Comprehensive video analysis response"""
+
     task_id: str
     status: str
     video_metadata: Dict[str, Any] = {}
@@ -79,4 +87,4 @@ class VideoAnalysisResult(BaseModel):
     time_based_analysis: Optional[TimeBasedAnalysis] = None
     raw_data: Optional[Dict[str, Any]] = None  # Keep original API response
     error_message: Optional[str] = None
-    created_at: datetime 
+    created_at: datetime
