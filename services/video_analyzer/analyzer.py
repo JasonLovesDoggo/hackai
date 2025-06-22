@@ -1,58 +1,32 @@
-from .api_client import client
-from pytube import YouTube
-import os
+import uuid
+from datetime import datetime
+from .models import VideoAnalysisRequest, VideoAnalysisResult
+from .api_client import TwelveLabsAPIClient
 
-FEATURES = ["conversation", "visual", "text_in_video", "action", "concept"]
+class VideoAnalyzer:
+    def __init__(self):
+        self.api_client = TwelveLabsAPIClient()
 
-
-def get_or_create_index(name="default-index"):
-    indexes = client.index.list()
-    for idx in indexes:
-        if idx.name == name:
-            return idx
-    return client.index.create(
-        name=name, models=[{"name": "marengo2.7", "options": ["visual", "audio"]}]
-    )
-
-
-def upload_video(video_url):
-    # Download or stream to local file; here we assume local .mp4
-    return client.task.create(
-        index_id=get_or_create_index().id, file=video_url, language="en"
-    )
-
-
-def extract_insights(video_id):
-    gist = client.gist(video_id=video_id, types=["title", "topic", "hashtag"])
-    summary = client.summarize(video_id, type="summary", prompt="Bullet summary")
-    return {
-        "title": gist.title,
-        "topics": gist.topics,
-        "hashtags": gist.hashtags,
-        "summary": summary.summary,
-    }
-
-
-def analyze_youtube_video(youtube_url: str) -> dict:
-    file_path = download_youtube_video(youtube_url)
-
-    task: Task = upload_video(file_path)
-    task.wait_for_done()
-    video_id = task.video_id
-
-    insights = extract_insights(video_id)
-
-    return {"video_id": video_id, **insights}
-
-
-def download_youtube_video(youtube_url: str, output_dir="downloads") -> str:
-    os.makedirs(output_dir, exist_ok=True)
-    yt = YouTube(youtube_url)
-    stream = (
-        yt.streams.filter(progressive=True, file_extension="mp4")
-        .order_by("resolution")
-        .desc()
-        .first()
-    )
-    file_path = stream.download(output_path=output_dir)
-    return file_path
+    def analyze_video(self, file_path: str, request: VideoAnalysisRequest) -> VideoAnalysisResult:
+        """Analyze a video file and return results"""
+        task_id = str(uuid.uuid4())
+        start_time = datetime.now()
+        
+        try:
+            # Use the API client to analyze the video
+            result = self.api_client.analyze_video_file(file_path, request.features)
+            
+            return VideoAnalysisResult(
+                task_id=result["task_id"],
+                status=result["status"],
+                result=result["result"],
+                created_at=start_time
+            )
+            
+        except Exception as e:
+            return VideoAnalysisResult(
+                task_id=task_id,
+                status="failed",
+                error_message=str(e),
+                created_at=start_time
+            )
