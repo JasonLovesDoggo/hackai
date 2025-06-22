@@ -1,4 +1,3 @@
-import os
 
 from fastapi import FastAPI, APIRouter
 from services.youtube_scraper.routes import router as youtube_router

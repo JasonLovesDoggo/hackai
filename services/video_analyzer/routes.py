@@ -9,6 +9,7 @@ router = APIRouter(prefix="/video-analysis", tags=["video-analysis"])
 class VideoRequest(BaseModel):
     video_url: str
 
+
 @router.post("/analyze")
 async def analyze_video(data: VideoRequest):
     try:

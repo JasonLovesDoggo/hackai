@@ -12,12 +12,12 @@ scraper = YouTubeScraper()
 async def get_channel_health(url: str):
     """Get comprehensive channel health analysis and content insights"""
     endpoint = "youtube.channel.health"
-    
+
     # Check cache first
     cached_result = simple_cache.get(endpoint, url=url)
     if cached_result:
         return cached_result
-    
+
     try:
         result = await scraper.get_channel_health(url)
 
