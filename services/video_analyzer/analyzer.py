@@ -184,32 +184,6 @@ class VideoAnalyzer:
 
         return parsed
 
-    def _create_context_from_gist(self, gist_data: Dict[str, Any]) -> VideoContext:
-        """Create video context from gist data"""
-        try:
-            context = VideoContext()
-
-            context.title = gist_data.get("title", "")
-            context.main_topics = gist_data.get("topics", [])
-            context.hashtags = gist_data.get("hashtags", [])
-
-            # Determine content type from topics
-            if context.main_topics:
-                context.content_type = self._determine_content_type_from_topics(
-                    context.main_topics
-                )
-
-            return context
-        except Exception as e:
-            print(f"Warning: Could not create context from gist: {str(e)}")
-            # Return a minimal context
-            return VideoContext(
-                content_summary="",
-                content_type="unknown",
-                title="",
-                main_topics=[],
-                hashtags=[],
-            )
 
     def _parse_chapters_to_scenes(
         self, chapters: List[Dict[str, Any]]
