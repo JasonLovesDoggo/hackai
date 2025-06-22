@@ -118,7 +118,7 @@ class TwelveLabsAPIClient:
             print(f"Error uploading video: {str(e)}")
             raise
 
-    def analyze_video(
+    async def analyze_video(
         self, video_id: str, analysis_types: List[str] = None
     ) -> Dict[str, Any]:
         """

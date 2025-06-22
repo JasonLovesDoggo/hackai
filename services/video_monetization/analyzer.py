@@ -67,6 +67,7 @@ class VideoMonetizationAnalyzer:
             
             # Step 1: Start video upload (non-blocking)
             logger.info(f"Task {task_id}: Starting video upload")
+            self.tasks[task_id].status = "uploading"
             from services.video_analyzer.api_client import TwelveLabsAPIClient
             
             api_client = TwelveLabsAPIClient()
@@ -74,16 +75,22 @@ class VideoMonetizationAnalyzer:
             # Start upload and get task info immediately
             upload_result = api_client.upload_video_async(file_path)
             video_task_id = upload_result["task_id"]
+            logger.info(f"Task {task_id}: Video upload started, video_task_id: {video_task_id}")
+            
+            # Update status and wait for upload completion
+            self.tasks[task_id].status = "indexing"
+            self.tasks[task_id].timestamps["upload_started"] = datetime.now()
             
             # Poll for completion and then analyze
             video_result = await self._wait_for_video_and_analyze(api_client, video_task_id)
             
-            # Store video analysis result
-            self.tasks[task_id].video_analysis = video_result
+            # Store cleaned video analysis result
+            self.tasks[task_id].video_analysis = self._clean_video_analysis(video_result)
             self.tasks[task_id].timestamps["video_analysis_completed"] = datetime.now()
             
             # Step 2: Extract product keywords from analysis
             logger.info(f"Task {task_id}: Extracting product keywords")
+            self.tasks[task_id].status = "extracting_products"
             products_with_timestamps = await self._extract_product_keywords(video_result)
             # Store just the names for backward compatibility
             self.tasks[task_id].product_keywords = [p["name"] for p in products_with_timestamps]
@@ -92,17 +99,20 @@ class VideoMonetizationAnalyzer:
             # Step 3: Generate affiliate links for products
             if products_with_timestamps:
                 logger.info(f"Task {task_id}: Generating affiliate links for {len(products_with_timestamps)} keywords")
+                self.tasks[task_id].status = "generating_affiliate_links"
                 await self._generate_product_links(task_id, products_with_timestamps, amazon_affiliate_code)
                 self.tasks[task_id].timestamps["affiliate_links_generated"] = datetime.now()
             
             # Step 4: Get YouTube channel context if URL provided
             if youtube_channel_url:
                 logger.info(f"Task {task_id}: Fetching YouTube channel context")
+                self.tasks[task_id].status = "fetching_channel_data"
                 await self._get_channel_context(task_id, youtube_channel_url)
                 self.tasks[task_id].timestamps["channel_context_fetched"] = datetime.now()
             
             # Step 5: Generate monetization strategies using GROQ
             logger.info(f"Task {task_id}: Generating monetization strategies")
+            self.tasks[task_id].status = "generating_strategies"
             await self._generate_monetization_strategies(task_id)
             self.tasks[task_id].timestamps["strategies_generated"] = datetime.now()
             
@@ -128,9 +138,13 @@ class VideoMonetizationAnalyzer:
         # Wait for upload completion
         upload_result = await api_client.wait_for_upload_completion(video_task_id)
         video_id = upload_result["video_id"]
+        logger.info(f"Video upload completed, video_id: {video_id}")
         
+        # Update status to analyzing
         # Now analyze the video
-        analysis_result = api_client.analyze_video(video_id, ["gist", "summary", "analysis"])
+        logger.info(f"Starting video analysis for video_id: {video_id}")
+        analysis_result = await api_client.analyze_video(video_id, ["gist", "summary", "analysis"])
+        logger.info(f"Video analysis completed")
         
         return {
             "upload": upload_result,
@@ -141,62 +155,131 @@ class VideoMonetizationAnalyzer:
         }
     
     async def _extract_product_keywords(self, video_result) -> List[Dict[str, str]]:
-        """Extract product keywords with timestamps from video analysis"""
+        """Extract product keywords with timestamps from video analysis using GROQ AI"""
         try:
             # Get the analysis text from the video result
             analysis_text = ""
+            logger.info(f"🔍 Extracting products from video analysis using GROQ AI...")
             
-            # Check if video_result has raw_data
-            if hasattr(video_result, 'raw_data') and video_result.raw_data:
-                raw_data = video_result.raw_data
-                if isinstance(raw_data, dict) and "analysis" in raw_data:
-                    analysis_data = raw_data["analysis"]
+            # Get analysis text from cleaned video result
+            if isinstance(video_result, dict):
+                if "_internal_analysis" in video_result:
+                    analysis_text = video_result["_internal_analysis"]
+                elif "analysis" in video_result:
+                    analysis_data = video_result["analysis"]
                     if isinstance(analysis_data, dict) and "analysis" in analysis_data:
                         if isinstance(analysis_data["analysis"], dict) and "analysis" in analysis_data["analysis"]:
                             analysis_text = analysis_data["analysis"]["analysis"]
                         elif isinstance(analysis_data["analysis"], str):
                             analysis_text = analysis_data["analysis"]
             
+            logger.info(f"📝 Analysis text length: {len(analysis_text)} characters")
             if not analysis_text:
-                logger.warning("No analysis text found in video result")
+                logger.error("❌ NO ANALYSIS TEXT FOUND - THIS SHIT DON'T WORK!")
+                logger.debug(f"Video result structure: {type(video_result)}")
+                if isinstance(video_result, dict):
+                    logger.debug(f"Video result keys: {list(video_result.keys())}")
                 return []
             
-            # Use regex to find product mentions
-            product_pattern = r'Products?[/\s]things?.+?buy.+?shown.+?video[:\s]*\n?(.+?)(?:\n\n|\nSuggestions|\nKey insights|$)'
+            # Log a preview of the analysis text to see what we're working with
+            logger.info(f"📋 Analysis text preview: {analysis_text[:500]}...")
+            
+            # Try to find product mentions using regex first to see if they exist
+            product_pattern = r'Products?[^:]*?include[:\s]*\n?(.+?)(?:\n\n|\nSuggestions|\nKey insights|$)'
             matches = re.search(product_pattern, analysis_text, re.IGNORECASE | re.DOTALL)
             
             if matches:
                 product_text = matches.group(1)
+                logger.info(f"🛍️ Found product section: {product_text[:200]}...")
                 
-                # Extract individual products with timestamps
-                products = []
-                for line in product_text.split('\n'):
-                    line = line.strip()
-                    if line.startswith('-') or line.startswith('•') or line.startswith('*'):
-                        # Clean up the product line
-                        product_line = line.lstrip('-•* ').strip()
-                        
-                        # Extract timestamp if present
-                        timestamp_match = re.search(r'\((\d+s-\d+s)\)', product_line)
-                        timestamp = timestamp_match.group(1) if timestamp_match else None
-                        
-                        # Extract product name (remove timestamps in parentheses for search)
-                        product_name = re.sub(r'\s*\(\d+s-\d+s\)', '', product_line).strip()
-                        
-                        if product_name:
-                            products.append({
-                                "name": product_name,
-                                "timestamp": timestamp
-                            })
+                # NOW USE GROQ AI TO EXTRACT PRODUCTS WITH TIMESTAMPS
+                logger.info("🤖 Calling GROQ AI to extract products and timestamps...")
+                products = await self._extract_products_with_groq(product_text)
                 
-                logger.info(f"Extracted {len(products)} products with timestamps: {[f'{p["name"]} ({p["timestamp"]})' for p in products]}")
-                return products
+                if products:
+                    logger.info(f"✅ GROQ extracted {len(products)} products: {[f'{p["name"]} ({p.get("timestamp", "no timestamp")})' for p in products]}")
+                    return products
+                else:
+                    logger.error("❌ GROQ EXTRACTION FAILED - RETURNED EMPTY ARRAY - THIS SHIT DON'T WOOOOOOOORK!")
+                    return []
             else:
-                logger.warning("No product section found in analysis text")
-                return []
+                logger.error("❌ NO PRODUCT SECTION FOUND IN ANALYSIS TEXT - REGEX PATTERN FAILED!")
+                # Try using GROQ on the full analysis text as fallback
+                logger.info("🔄 Trying GROQ on full analysis text as fallback...")
+                products = await self._extract_products_with_groq(analysis_text)
+                
+                if products:
+                    logger.info(f"✅ GROQ fallback extracted {len(products)} products")
+                    return products
+                else:
+                    logger.error("❌ GROQ FALLBACK ALSO FAILED - NO PRODUCTS EXTRACTED!")
+                    return []
                 
         except Exception as e:
-            logger.error(f"Error extracting product keywords: {e}")
+            logger.error(f"💥 ERROR EXTRACTING PRODUCT KEYWORDS: {e}")
+            return []
+    
+    async def _extract_products_with_groq(self, analysis_text: str) -> List[Dict[str, str]]:
+        """Use GROQ to extract products from analysis text"""
+        try:
+            prompt = f"""
+Parse this video analysis and extract all products mentioned with their timestamps.
+
+Analysis text:
+{analysis_text}
+
+Return ONLY a JSON array in this exact format:
+[
+  {{"name": "Logitech MX Master 3s Mouse", "timestamp": "0s-5s"}},
+  {{"name": "Celsius Energy Drink", "timestamp": "6s-12s"}}
+]
+
+Rules:
+- Extract product names without any extra description
+- Keep timestamps in format like "0s-5s" or "21s-27s"  
+- If no timestamp found, use null
+- Return empty array [] if no products found
+- Return ONLY the JSON array, no other text
+"""
+
+            import httpx
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{self.groq_client.base_url}/chat/completions",
+                    headers=self.groq_client.headers,
+                    json={
+                        "model": "llama-3.3-70b-versatile",
+                        "messages": [
+                            {"role": "system", "content": "You are a product extraction expert. Return only valid JSON arrays."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        "temperature": 0.1,
+                        "max_tokens": 500
+                    }
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    content = result["choices"][0]["message"]["content"].strip()
+                    
+                    try:
+                        products = json.loads(content)
+                        if isinstance(products, list):
+                            return products
+                        else:
+                            logger.error(f"GROQ returned non-list: {content}")
+                            return []
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse GROQ product response: {e}")
+                        logger.debug(f"Raw GROQ content: {content}")
+                        return []
+                else:
+                    logger.error(f"GROQ API error: {response.status_code}")
+                    return []
+                    
+        except Exception as e:
+            logger.error(f"Error calling GROQ for product extraction: {e}")
             return []
     
     async def _generate_product_links(self, task_id: str, products_with_timestamps: List[Dict[str, str]], amazon_affiliate_code: Optional[str] = None):
@@ -332,6 +415,7 @@ class VideoMonetizationAnalyzer:
                                 strategy_type=strategy_dict.get("strategy_type", "unknown"),
                                 title=strategy_dict.get("title", ""),
                                 description=strategy_dict.get("description", ""),
+                                why_this_works=strategy_dict.get("why_this_works", ""),
                                 implementation_steps=strategy_dict.get("implementation_steps", []),
                                 estimated_effort=strategy_dict.get("estimated_effort", "medium"),
                                 estimated_timeline=strategy_dict.get("estimated_timeline", "unknown"),
@@ -354,6 +438,31 @@ class VideoMonetizationAnalyzer:
     def get_task_status(self, task_id: str) -> Optional[VideoMonetizationResult]:
         """Get current status of a task - returns immediately"""
         return self.tasks.get(task_id)
+    
+    def _clean_video_analysis(self, video_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Clean up video analysis result to remove unnecessary data"""
+        if not video_result:
+            return {}
+        
+        cleaned = {
+            "video_id": video_result.get("video_id"),
+            "status": video_result.get("status"),
+            "created_at": video_result.get("created_at")
+        }
+        
+        # Keep only essential analysis data  
+        if "analysis" in video_result:
+            analysis = video_result["analysis"]
+            
+            # Keep summary text but remove usage tokens
+            if "summary" in analysis and isinstance(analysis["summary"], dict):
+                cleaned["summary"] = analysis["summary"].get("summary", "")
+            
+            # Store analysis text for product extraction but don't include in response
+            if "analysis" in analysis and isinstance(analysis["analysis"], dict):
+                cleaned["_internal_analysis"] = analysis["analysis"].get("analysis", "")
+        
+        return cleaned
     
     def list_tasks(self) -> Dict[str, VideoMonetizationResult]:
         """List all tasks (for debugging)"""

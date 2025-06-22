@@ -30,6 +30,7 @@ class MonetizationStrategy(BaseModel):
     strategy_type: str  # e.g., "course", "sponsorship", "affiliate", "merchandise"
     title: str
     description: str
+    why_this_works: str  # Detailed explanation of why this strategy is perfect for this creator
     implementation_steps: List[str]
     estimated_effort: str  # e.g., "low", "medium", "high"
     estimated_timeline: str  # e.g., "1-2 weeks", "1-3 months"
