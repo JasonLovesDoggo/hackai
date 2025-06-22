@@ -90,28 +90,46 @@ class VideoMonetizationAnalyzer:
             self.tasks[task_id].status = "processing"
             self.tasks[task_id].timestamps["video_analysis_started"] = datetime.now()
 
-            # Step 1: Start video upload (non-blocking)
-            logger.info(f"Task {task_id}: Starting video upload")
-            self.tasks[task_id].status = "uploading"
-            from services.video_analyzer.api_client import TwelveLabsAPIClient
+            # Step 1: Check for cached 12labs response first
+            import os
 
-            api_client = TwelveLabsAPIClient()
+            cache_file = "/home/json/Projects/hackai/12.json"
 
-            # Start upload and get task info immediately
-            upload_result = api_client.upload_video_async(file_path)
-            video_task_id = upload_result["task_id"]
-            logger.info(
-                f"Task {task_id}: Video upload started, video_task_id: {video_task_id}"
-            )
+            if os.path.exists(cache_file):
+                logger.info(
+                    f"Task {task_id}: Found 12.json cache file - loading cached response"
+                )
+                self.tasks[task_id].status = "loading_cached_data"
 
-            # Update status and wait for upload completion
-            self.tasks[task_id].status = "indexing"
-            self.tasks[task_id].timestamps["upload_started"] = datetime.now()
+                try:
+                    with open(cache_file, "r") as f:
+                        cached_data = json.load(f)
 
-            # Poll for completion and then analyze
-            video_result = await self._wait_for_video_and_analyze(
-                api_client, video_task_id, task_id
-            )
+                    # Create video result with cached flag
+                    video_result = {
+                        "upload": {"task_id": "cached", "status": "cached"},
+                        "analysis": cached_data,
+                        "video_id": "cached_video_id",
+                        "status": "cached",
+                        "created_at": datetime.now().isoformat(),
+                    }
+
+                    logger.info(
+                        f"Task {task_id}: Successfully loaded cached 12labs data"
+                    )
+                    logger.info(
+                        f"Cached 12labs response: {json.dumps(cached_data, indent=2)}"
+                    )
+
+                except Exception as e:
+                    logger.error(f"Task {task_id}: Failed to load cache file: {e}")
+                    # Fall back to normal API call
+                    video_result = await self._do_actual_12labs_call(task_id, file_path)
+            else:
+                logger.info(
+                    f"Task {task_id}: No cache file found - making actual 12labs API call"
+                )
+                video_result = await self._do_actual_12labs_call(task_id, file_path)
 
             # Store cleaned video analysis result
             self.tasks[task_id].video_analysis = self._clean_video_analysis(
@@ -228,6 +246,41 @@ class VideoMonetizationAnalyzer:
             "status": "completed",
             "created_at": datetime.now().isoformat(),
         }
+
+    async def _do_actual_12labs_call(
+        self, task_id: str, file_path: str
+    ) -> Dict[str, Any]:
+        """Make the actual 12labs API call (not cached)"""
+        logger.info(f"Task {task_id}: Starting video upload to 12labs")
+        self.tasks[task_id].status = "uploading"
+        from services.video_analyzer.api_client import TwelveLabsAPIClient
+
+        api_client = TwelveLabsAPIClient()
+
+        # Start upload and get task info immediately
+        upload_result = api_client.upload_video_async(file_path)
+        video_task_id = upload_result["task_id"]
+        logger.info(
+            f"Task {task_id}: Video upload started, video_task_id: {video_task_id}"
+        )
+
+        # Update status and wait for upload completion
+        self.tasks[task_id].status = "indexing"
+        self.tasks[task_id].timestamps["upload_started"] = datetime.now()
+
+        # Poll for completion and then analyze
+        video_result = await self._wait_for_video_and_analyze(
+            api_client, video_task_id, task_id
+        )
+
+        # Print the 12labs API response to console
+        import json
+
+        logger.info("=== 12LABS API RESPONSE ===")
+        logger.info(json.dumps(video_result, indent=2, default=str))
+        logger.info("=== END 12LABS RESPONSE ===")
+
+        return video_result
 
     async def _extract_product_keywords(self, video_result) -> List[Dict[str, str]]:
         """Extract product keywords with timestamps from video analysis using GROQ AI"""
@@ -518,7 +571,6 @@ Return ONLY a JSON array:
         """SIMPLE timestamp cleaner: [0s (00:00)-5s (00:05)] → 00:00-00:05"""
         if not timestamp:
             return None
-
 
         # Extract MM:SS format from complex timestamp
         time_match = re.search(

@@ -100,7 +100,7 @@ class LinkGenerator:
         self, request: LinkGenerationRequest, platforms: List[str]
     ) -> List[ProductLink]:
         """Search for products and generate affiliate links"""
-        
+
         try:
             # Try GROQ tool calling first
             search_result = await self.groq_client.search_products_with_tools(
