@@ -73,6 +73,60 @@ async def get_analysis_status(task_id: str):
     - "processing": Analysis in progress
     - "completed": Analysis finished successfully
     - "failed": Analysis encountered an error
+    
+    Example completed response:
+    {
+        "task_id": "abc123-def456",
+        "status": "completed",
+        "video_analysis": {
+            "task_id": "abc123",
+            "context": {
+                "content_summary": "Video shows tech gadgets including Logitech mouse, Celsius drink...",
+                "target_audience": "tech enthusiasts"
+            }
+        },
+        "products": [
+            {
+                "product_name": "Logitech MX Master 3s Mouse",
+                "product_url": "https://www.amazon.com/dp/B0CX23PHFD", 
+                "affiliate_url": "https://www.amazon.com/dp/B0CX23PHFD?tag=yourcode-20",
+                "platform": "amazon",
+                "price": "$99.99",
+                "timestamp": "0s-5s"
+            },
+            {
+                "product_name": "Celsius Energy Drink",
+                "product_url": "https://www.amazon.com/dp/B0D2R5DR1M",
+                "affiliate_url": "https://www.amazon.com/dp/B0D2R5DR1M?tag=yourcode-20", 
+                "platform": "amazon",
+                "price": "$24.99",
+                "timestamp": "5s-13s"
+            }
+        ],
+        "product_keywords": ["Logitech MX Master 3s mouse", "Celsius energy drink"],
+        "monetization_strategies": [
+            {
+                "strategy_type": "course",
+                "title": "Complete Tech Setup Guide",
+                "description": "Create a course teaching optimal workspace setup",
+                "implementation_steps": ["Plan curriculum", "Record videos", "Launch on platform"],
+                "estimated_effort": "high",
+                "estimated_timeline": "2-3 months", 
+                "potential_revenue": "high"
+            }
+        ],
+        "channel_context": {
+            "channel": {"subscribers": 245000, "name": "TechReviewer"}
+        },
+        "created_at": "2025-06-22T10:30:00",
+        "completed_at": "2025-06-22T10:35:00",
+        "timestamps": {
+            "started": "2025-06-22T10:30:00",
+            "video_analysis_completed": "2025-06-22T10:32:00",
+            "affiliate_links_generated": "2025-06-22T10:34:00",
+            "strategies_generated": "2025-06-22T10:35:00"
+        }
+    }
     """
     result = video_monetization_analyzer.get_task_status(task_id)
     
