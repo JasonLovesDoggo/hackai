@@ -190,12 +190,355 @@ class TwelveLabsAPIClient:
     def get_video_info(self, video_id: str) -> Dict[str, Any]:
         """Get information about a specific video"""
         try:
-            # You can use the video API to get video information
-            # This would require additional SDK methods if available
             return {
                 "video_id": video_id,
                 "status": "info_retrieved"
             }
         except Exception as e:
             print(f"Error getting video info: {str(e)}")
+            raise
+
+    def get_frame_by_frame_analysis(self, video_id: str, interval_seconds: int = 5) -> Dict[str, Any]:
+        """
+        Get frame-by-frame analysis of a video using time-based search
+        Returns analysis for each time interval
+        """
+        try:
+            print(f"Getting frame-by-frame analysis with {interval_seconds}s intervals...")
+            
+            # First, get video information to determine duration
+            videos = self.client.index.video.list(self._index_id)
+            video_info = None
+            for video in videos:
+                if video.id == video_id:
+                    video_info = video
+                    break
+            
+            if not video_info:
+                raise Exception(f"Video {video_id} not found in index")
+            
+            # Get actual video duration - try different attributes
+            duration = None
+            for attr in ['duration', 'length', 'video_duration']:
+                if hasattr(video_info, attr):
+                    duration = getattr(video_info, attr)
+                    break
+            
+            if duration is None:
+                # If we can't get duration, try to estimate from search results
+                print("Could not get video duration, attempting to estimate...")
+                try:
+                    # Try a broad search to see if we get any results
+                    test_search = self.client.search(
+                        index_id=self._index_id,
+                        query="*",
+                        search_options=["visual"]
+                    )
+                    if hasattr(test_search, 'data') and test_search.data:
+                        # Find the latest timestamp
+                        max_time = 0
+                        for result in test_search.data:
+                            if hasattr(result, 'end_time'):
+                                max_time = max(max_time, result.end_time)
+                            elif hasattr(result, 'start_time'):
+                                max_time = max(max_time, result.start_time)
+                        duration = max_time if max_time > 0 else None
+                        if duration:
+                            print(f"Estimated duration from search results: {duration}s")
+                        else:
+                            print("Could not estimate duration from search results")
+                    else:
+                        print("No search results available for duration estimation")
+                except Exception as e:
+                    print(f"Could not estimate duration: {str(e)}")
+                
+                # If we still don't have duration, we need to handle this case
+                if duration is None:
+                    print("Warning: Could not determine video duration. Analysis may be incomplete.")
+                    # For frame analysis, we'll need to handle this case differently
+                    # For now, let's try to get a reasonable estimate
+                    duration = 300  # Assume 5 minutes as a reasonable default
+                    print(f"Using estimated duration: {duration}s")
+            
+            print(f"Video duration: {duration} seconds")
+            
+            # Test if search API is working
+            search_api_working = False
+            try:
+                test_search = self.client.search(
+                    index_id=self._index_id,
+                    query="*",
+                    search_options=["visual"]
+                )
+                search_api_working = hasattr(test_search, 'data')
+                print(f"Search API working: {search_api_working}")
+            except Exception as e:
+                print(f"Search API test failed: {str(e)}")
+                search_api_working = False
+            
+            # If search API is not working, use fallback
+            if not search_api_working:
+                print("Search API not working, using fallback analysis...")
+                return self.get_frame_by_frame_analysis_fallback(video_id, interval_seconds)
+            
+            frames = []
+            total_frames = 0
+            
+            # Analyze video in intervals - use the FULL duration
+            for start_time in range(0, int(duration), interval_seconds):
+                end_time = min(start_time + interval_seconds, duration)
+                print(f"Analyzing {start_time}s to {end_time}s...")
+                
+                # Search for visual content in this time interval
+                try:
+                    # Try different search approaches
+                    visual_objects = []
+                    text_detected = []
+                    
+                    # Approach 1: Search for any visual content
+                    try:
+                        visual_search = self.client.search(
+                            index_id=self._index_id,
+                            query="*",  # Search for any visual content
+                            search_options=["visual"],
+                            start_time=start_time,
+                            end_time=end_time
+                        )
+                        
+                        if hasattr(visual_search, 'data') and visual_search.data:
+                            for result in visual_search.data:
+                                if hasattr(result, 'start_time') and hasattr(result, 'end_time'):
+                                    visual_objects.append({
+                                        "label": getattr(result, 'label', 'unknown'),
+                                        "confidence": getattr(result, 'confidence', 0.5),
+                                        "start": result.start_time,
+                                        "end": result.end_time,
+                                        "description": getattr(result, 'description', '')
+                                    })
+                    except Exception as e:
+                        print(f"  Visual search failed: {str(e)}")
+                    
+                    # Approach 2: Search for specific common objects
+                    if not visual_objects:
+                        common_objects = ["person", "car", "building", "text", "screen", "object"]
+                        for obj in common_objects:
+                            try:
+                                obj_search = self.client.search(
+                                    index_id=self._index_id,
+                                    query=obj,
+                                    search_options=["visual"],
+                                    start_time=start_time,
+                                    end_time=end_time
+                                )
+                                
+                                if hasattr(obj_search, 'data') and obj_search.data:
+                                    for result in obj_search.data:
+                                        if hasattr(result, 'start_time') and hasattr(result, 'end_time'):
+                                            visual_objects.append({
+                                                "label": obj,
+                                                "confidence": getattr(result, 'confidence', 0.5),
+                                                "start": result.start_time,
+                                                "end": result.end_time,
+                                                "description": f"Detected {obj}"
+                                            })
+                                    break  # Found something, stop searching
+                            except Exception as e:
+                                continue  # Try next object
+                    
+                    # Approach 3: Search for text specifically
+                    try:
+                        text_search = self.client.search(
+                            index_id=self._index_id,
+                            query="text",
+                            search_options=["visual"],
+                            start_time=start_time,
+                            end_time=end_time
+                        )
+                        
+                        if hasattr(text_search, 'data') and text_search.data:
+                            for result in text_search.data:
+                                if hasattr(result, 'text'):
+                                    text_detected.append(result.text)
+                    except Exception as e:
+                        print(f"  Text search failed: {str(e)}")
+                    
+                    # Create frame analysis
+                    frame = {
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "visual_objects": visual_objects,
+                        "text_detected": text_detected,
+                        "scene_description": self._generate_scene_description(visual_objects, text_detected),
+                        "dominant_colors": [],  # Could be enhanced with color analysis
+                        "audio_analysis": None  # Could be enhanced with audio analysis
+                    }
+                    
+                    frames.append(frame)
+                    total_frames += 1
+                    
+                except Exception as e:
+                    print(f"Warning: Could not analyze interval {start_time}s-{end_time}s: {str(e)}")
+                    # Add empty frame with error description
+                    frames.append({
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "visual_objects": [],
+                        "text_detected": [],
+                        "scene_description": f"Analysis failed: {str(e)}",
+                        "dominant_colors": [],
+                        "audio_analysis": None
+                    })
+                    total_frames += 1
+            
+            return {
+                "interval_seconds": interval_seconds,
+                "total_frames": total_frames,
+                "frames": frames,
+                "summary": self._generate_frame_analysis_summary(frames),
+                "video_duration": duration,
+                "analysis_mode": "search_api"
+            }
+            
+        except Exception as e:
+            print(f"Error in frame-by-frame analysis: {str(e)}")
+            # Try fallback if main method fails
+            try:
+                print("Trying fallback analysis...")
+                return self.get_frame_by_frame_analysis_fallback(video_id, interval_seconds)
+            except Exception as fallback_error:
+                print(f"Fallback also failed: {str(fallback_error)}")
+                raise
+
+    def _generate_scene_description(self, visual_objects: List[Dict], text_detected: List[str]) -> str:
+        """Generate a description of the scene based on visual objects and text"""
+        if not visual_objects and not text_detected:
+            return "No visual content detected"
+        
+        description_parts = []
+        
+        # Add visual objects
+        if visual_objects:
+            object_counts = {}
+            for obj in visual_objects:
+                label = obj.get('label', 'unknown')
+                object_counts[label] = object_counts.get(label, 0) + 1
+            
+            object_descriptions = []
+            for label, count in object_counts.items():
+                if count == 1:
+                    object_descriptions.append(f"a {label}")
+                else:
+                    object_descriptions.append(f"{count} {label}s")
+            
+            if object_descriptions:
+                description_parts.append(f"Shows {', '.join(object_descriptions)}")
+        
+        # Add text content
+        if text_detected:
+            text_summary = text_detected[0][:50] + "..." if len(text_detected[0]) > 50 else text_detected[0]
+            description_parts.append(f"Contains text: '{text_summary}'")
+        
+        return ". ".join(description_parts) if description_parts else "Scene content detected"
+
+    def _generate_frame_analysis_summary(self, frames: List[Dict]) -> str:
+        """Generate a summary of the frame-by-frame analysis"""
+        if not frames:
+            return "No frames analyzed"
+        
+        total_objects = sum(len(frame.get('visual_objects', [])) for frame in frames)
+        total_text = sum(len(frame.get('text_detected', [])) for frame in frames)
+        
+        # Find most common objects
+        object_counts = {}
+        for frame in frames:
+            for obj in frame.get('visual_objects', []):
+                label = obj.get('label', 'unknown')
+                object_counts[label] = object_counts.get(label, 0) + 1
+        
+        most_common_objects = sorted(object_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+        
+        summary_parts = [
+            f"Analyzed {len(frames)} time intervals",
+            f"Detected {total_objects} visual objects",
+            f"Found {total_text} text elements"
+        ]
+        
+        if most_common_objects:
+            common_objects_str = ", ".join([f"{label} ({count})" for label, count in most_common_objects])
+            summary_parts.append(f"Most common objects: {common_objects_str}")
+        
+        return ". ".join(summary_parts)
+
+    def get_frame_by_frame_analysis_fallback(self, video_id: str, interval_seconds: int = 5) -> Dict[str, Any]:
+        """
+        Fallback frame-by-frame analysis using video metadata and basic analysis
+        This method doesn't rely on the search API
+        """
+        try:
+            print(f"Using fallback frame-by-frame analysis with {interval_seconds}s intervals...")
+            
+            # Get video information
+            videos = self.client.index.video.list(self._index_id)
+            video_info = None
+            for video in videos:
+                if video.id == video_id:
+                    video_info = video
+                    break
+            
+            if not video_info:
+                raise Exception(f"Video {video_id} not found in index")
+            
+            # Try to get duration from video info
+            duration = None
+            for attr in ['duration', 'length', 'video_duration']:
+                if hasattr(video_info, attr):
+                    duration = getattr(video_info, attr)
+                    break
+            
+            if duration is None:
+                print("Warning: Could not determine video duration in fallback mode.")
+                print("Using estimated duration for analysis.")
+                duration = 300  # Assume 5 minutes as a reasonable default
+                print(f"Using estimated duration: {duration}s")
+            
+            print(f"Video duration: {duration} seconds")
+            
+            frames = []
+            total_frames = 0
+            
+            # Create basic frame analysis without search API
+            for start_time in range(0, int(duration), interval_seconds):
+                end_time = min(start_time + interval_seconds, duration)
+                
+                # Create a basic frame with placeholder data
+                frame = {
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "visual_objects": [],
+                    "text_detected": [],
+                    "scene_description": f"Time segment {start_time}s-{end_time}s (basic analysis)",
+                    "dominant_colors": [],
+                    "audio_analysis": None
+                }
+                
+                # Try to get some basic info from video metadata
+                if hasattr(video_info, 'metadata'):
+                    metadata = video_info.metadata
+                    if metadata:
+                        frame["scene_description"] = f"Video segment {start_time}s-{end_time}s"
+                
+                frames.append(frame)
+                total_frames += 1
+            
+            return {
+                "interval_seconds": interval_seconds,
+                "total_frames": total_frames,
+                "frames": frames,
+                "summary": f"Basic analysis of {total_frames} time intervals (fallback mode)",
+                "video_duration": duration,
+                "analysis_mode": "fallback"
+            }
+            
+        except Exception as e:
+            print(f"Error in fallback frame-by-frame analysis: {str(e)}")
             raise

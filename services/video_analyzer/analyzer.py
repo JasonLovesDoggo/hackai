@@ -8,7 +8,9 @@ from .models import (
     TranscriptSegment, 
     VisualObject, 
     SceneAnalysis, 
-    VideoContext
+    VideoContext,
+    FrameAnalysis,
+    TimeBasedAnalysis
 )
 from .api_client import TwelveLabsAPIClient
 
@@ -31,6 +33,18 @@ class VideoAnalyzer:
             # Parse the analysis data into structured format
             parsed_data = self._parse_analysis_data(result["analysis"])
             
+            # Get frame-by-frame analysis if requested
+            time_based_analysis = None
+            if "frames" in request.features or "visual" in request.features:
+                try:
+                    frame_analysis_data = self.api_client.get_frame_by_frame_analysis(
+                        result["video_id"], 
+                        interval_seconds=5
+                    )
+                    time_based_analysis = self._parse_frame_analysis_data(frame_analysis_data)
+                except Exception as e:
+                    print(f"Warning: Frame-by-frame analysis failed: {str(e)}")
+            
             return VideoAnalysisResult(
                 task_id=result["upload"]["task_id"],
                 status=result["status"],
@@ -39,6 +53,7 @@ class VideoAnalyzer:
                 visual_analysis=parsed_data.get("visual_analysis", []),
                 scenes=parsed_data.get("scenes", []),
                 context=parsed_data.get("context"),
+                time_based_analysis=time_based_analysis,
                 raw_data=result,
                 created_at=start_time
             )
@@ -119,8 +134,13 @@ class VideoAnalyzer:
             if "summary" in analysis_data:
                 summary_data = analysis_data["summary"]
                 if parsed["context"] is None:
-                    parsed["context"] = VideoContext()
-                parsed["context"].content_summary = summary_data.get("summary", "")
+                    try:
+                        parsed["context"] = VideoContext()
+                    except Exception as e:
+                        print(f"Warning: Could not create VideoContext: {str(e)}")
+                        parsed["context"] = None
+                if parsed["context"]:
+                    parsed["context"].content_summary = summary_data.get("summary", "")
             
             # Parse chapters data
             if "chapters" in analysis_data:
@@ -132,15 +152,25 @@ class VideoAnalyzer:
                 highlights_data = analysis_data["highlights"]
                 # Add highlights to context
                 if parsed["context"] is None:
-                    parsed["context"] = VideoContext()
-                parsed["context"].key_insights = self._extract_highlights(highlights_data.get("highlights", []))
+                    try:
+                        parsed["context"] = VideoContext()
+                    except Exception as e:
+                        print(f"Warning: Could not create VideoContext: {str(e)}")
+                        parsed["context"] = None
+                if parsed["context"]:
+                    parsed["context"].key_insights = self._extract_highlights(highlights_data.get("highlights", []))
             
             # Parse open-ended analysis
             if "analysis" in analysis_data:
                 analysis_text = analysis_data["analysis"].get("analysis", "")
                 if parsed["context"] is None:
-                    parsed["context"] = VideoContext()
-                parsed["context"] = self._enhance_context_with_analysis(parsed["context"], analysis_text)
+                    try:
+                        parsed["context"] = VideoContext()
+                    except Exception as e:
+                        print(f"Warning: Could not create VideoContext: {str(e)}")
+                        parsed["context"] = None
+                if parsed["context"]:
+                    parsed["context"] = self._enhance_context_with_analysis(parsed["context"], analysis_text)
             
             # Generate transcript from analysis if not available
             if not parsed["transcript"]:
@@ -155,17 +185,28 @@ class VideoAnalyzer:
 
     def _create_context_from_gist(self, gist_data: Dict[str, Any]) -> VideoContext:
         """Create video context from gist data"""
-        context = VideoContext()
-        
-        context.title = gist_data.get("title", "")
-        context.main_topics = gist_data.get("topics", [])
-        context.hashtags = gist_data.get("hashtags", [])
-        
-        # Determine content type from topics
-        if context.main_topics:
-            context.content_type = self._determine_content_type_from_topics(context.main_topics)
-        
-        return context
+        try:
+            context = VideoContext()
+            
+            context.title = gist_data.get("title", "")
+            context.main_topics = gist_data.get("topics", [])
+            context.hashtags = gist_data.get("hashtags", [])
+            
+            # Determine content type from topics
+            if context.main_topics:
+                context.content_type = self._determine_content_type_from_topics(context.main_topics)
+            
+            return context
+        except Exception as e:
+            print(f"Warning: Could not create context from gist: {str(e)}")
+            # Return a minimal context
+            return VideoContext(
+                content_summary="",
+                content_type="unknown",
+                title="",
+                main_topics=[],
+                hashtags=[]
+            )
 
     def _parse_chapters_to_scenes(self, chapters: List[Dict[str, Any]]) -> List[SceneAnalysis]:
         """Convert chapters data to scene analysis"""
@@ -191,20 +232,24 @@ class VideoAnalyzer:
 
     def _enhance_context_with_analysis(self, context: VideoContext, analysis_text: str) -> VideoContext:
         """Enhance context with open-ended analysis results"""
-        if not context:
-            context = VideoContext()
-        
-        # Extract additional insights from analysis text
-        context.content_summary = analysis_text[:500] + "..." if len(analysis_text) > 500 else analysis_text
-        
-        # Try to extract target audience from analysis
-        if "audience" in analysis_text.lower():
-            context.target_audience = self._extract_target_audience(analysis_text)
-        
-        # Try to extract sentiment
-        context.sentiment = self._analyze_sentiment(analysis_text)
-        
-        return context
+        try:
+            if not context:
+                context = VideoContext()
+            
+            # Extract additional insights from analysis text
+            context.content_summary = analysis_text[:500] + "..." if len(analysis_text) > 500 else analysis_text
+            
+            # Try to extract target audience from analysis
+            if "audience" in analysis_text.lower():
+                context.target_audience = self._extract_target_audience(analysis_text)
+            
+            # Try to extract sentiment
+            context.sentiment = self._analyze_sentiment(analysis_text)
+            
+            return context
+        except Exception as e:
+            print(f"Warning: Could not enhance context with analysis: {str(e)}")
+            return context
 
     def _generate_transcript_from_analysis(self, analysis_data: Dict[str, Any]) -> List[TranscriptSegment]:
         """Generate transcript segments from analysis data"""
@@ -416,3 +461,48 @@ class VideoAnalyzer:
             summary_parts.append(f"Contains {len(scenes)} scenes/chapters")
         
         return ". ".join(summary_parts) if summary_parts else "Video analysis completed"
+
+    def _parse_frame_analysis_data(self, frame_analysis_data: Dict[str, Any]) -> TimeBasedAnalysis:
+        """Parse frame-by-frame analysis data into TimeBasedAnalysis model"""
+        try:
+            frames = []
+            
+            for frame_data in frame_analysis_data.get("frames", []):
+                # Parse visual objects
+                visual_objects = []
+                for obj_data in frame_data.get("visual_objects", []):
+                    visual_objects.append(VisualObject(
+                        label=obj_data.get("label", ""),
+                        confidence=obj_data.get("confidence", 0.0),
+                        start=obj_data.get("start", 0.0),
+                        end=obj_data.get("end", 0.0),
+                        description=obj_data.get("description", "")
+                    ))
+                
+                # Create frame analysis
+                frame = FrameAnalysis(
+                    start_time=frame_data.get("start_time", 0.0),
+                    end_time=frame_data.get("end_time", 0.0),
+                    visual_objects=visual_objects,
+                    scene_description=frame_data.get("scene_description", ""),
+                    dominant_colors=frame_data.get("dominant_colors", []),
+                    text_detected=frame_data.get("text_detected", []),
+                    audio_analysis=frame_data.get("audio_analysis")
+                )
+                frames.append(frame)
+            
+            return TimeBasedAnalysis(
+                interval_seconds=frame_analysis_data.get("interval_seconds", 5),
+                total_frames=frame_analysis_data.get("total_frames", len(frames)),
+                frames=frames,
+                summary=frame_analysis_data.get("summary", "")
+            )
+            
+        except Exception as e:
+            print(f"Error parsing frame analysis data: {str(e)}")
+            return TimeBasedAnalysis(
+                interval_seconds=5,
+                total_frames=0,
+                frames=[],
+                summary="Frame analysis parsing failed"
+            )
