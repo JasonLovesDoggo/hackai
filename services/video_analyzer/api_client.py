@@ -20,13 +20,13 @@ class TwelveLabsAPIClient:
         if self._index_id:
             return self._index_id
         
-        # Create an index with marengo2.7 model for visual and audio analysis
+        # Create an index with pegasus1.2 model for visual and audio analysis
         # The generate methods (gist, summarize, analyze) work directly on video IDs
         print("Creating index for video analysis...")
         index = self.client.index.create(
             name=f"Video Analysis Index - {datetime.now().isoformat()}",
             models=[
-                {"name": "marengo2.7", "options": ["visual", "audio"]}
+                {"name": "pegasus1.2", "options": ["visual", "audio"]}
             ]
         )
         self._index_id = index.id
