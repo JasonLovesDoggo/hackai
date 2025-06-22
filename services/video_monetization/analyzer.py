@@ -76,7 +76,7 @@ class VideoMonetizationAnalyzer:
             # Step 3: Generate affiliate links for products
             if product_keywords:
                 logger.info(f"Task {task_id}: Generating affiliate links for {len(product_keywords)} keywords")
-                await self._generate_product_links(task_id, product_keywords)
+                await self._generate_product_links(task_id, product_keywords, amazon_affiliate_code)
                 self.tasks[task_id].timestamps["affiliate_links_generated"] = datetime.now()
             
             # Step 4: Get YouTube channel context if URL provided
@@ -150,7 +150,7 @@ class VideoMonetizationAnalyzer:
             logger.error(f"Error extracting product keywords: {e}")
             return []
     
-    async def _generate_product_links(self, task_id: str, keywords: List[str]):
+    async def _generate_product_links(self, task_id: str, keywords: List[str], amazon_affiliate_code: Optional[str] = None):
         """Generate affiliate links for extracted product keywords"""
         try:
             # Default affiliate codes (in real app, these would come from user settings)
