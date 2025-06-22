@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional
 from services.youtube_scraper.scraper import YouTubeScraper
 from services.affiliate_discovery.groq_client import GroqClient
 from .models import RevenuePlaybook, PlaybookSection
+from utils.simple_cache import simple_cache
 import json
 
 logger = logging.getLogger("uvicorn.error")
@@ -17,6 +18,12 @@ class RevenuePlaybookGenerator:
         """Generate a comprehensive revenue playbook for a YouTube channel"""
         try:
             logger.info(f"Generating revenue playbook for channel: {channel_url}")
+            
+            # Check cache first (1 hour TTL)
+            cached_result = simple_cache.get("revenue_playbook", channel_url=channel_url)
+            if cached_result:
+                logger.info("Returning cached revenue playbook")
+                return RevenuePlaybook(**cached_result)
             
             # Get channel health data
             channel_data = await self.youtube_scraper.get_channel_health(channel_url)
@@ -35,13 +42,18 @@ class RevenuePlaybookGenerator:
                 channel_info, content_analysis, health_analysis
             )
             
-            return RevenuePlaybook(
+            playbook = RevenuePlaybook(
                 title=playbook_data["title"],
                 sections=playbook_data["sections"],
                 channel_id=channel_info.get("id"),
                 channel_name=channel_info.get("name"),
                 generated_for_subscriber_count=channel_info.get("subscribers")
             )
+            
+            # Cache the result for 1 hour (3600 seconds)
+            simple_cache.set("revenue_playbook", playbook.dict(), 3600, channel_url=channel_url)
+            
+            return playbook
             
         except Exception as e:
             logger.error(f"Error generating revenue playbook: {e}")
