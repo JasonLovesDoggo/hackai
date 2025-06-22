@@ -10,6 +10,7 @@ from services.affiliate_discovery.groq_client import GroqClient
 from services.affiliate_discovery.models import LinkGenerationRequest, AffiliateCodes
 from services.youtube_scraper.scraper import YouTubeScraper
 from .models import VideoMonetizationResult, MonetizationStrategy, ProductLink
+from .prompts import MONETIZATION_STRATEGY_PROMPT, MONETIZATION_SYSTEM_MESSAGE
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -153,9 +154,9 @@ class VideoMonetizationAnalyzer:
     async def _generate_product_links(self, task_id: str, keywords: List[str], amazon_affiliate_code: Optional[str] = None):
         """Generate affiliate links for extracted product keywords"""
         try:
-            # Default affiliate codes (in real app, these would come from user settings)
+            # Use provided affiliate codes or defaults
             affiliate_codes = AffiliateCodes(
-                amazon="hackai20-20",  # Example Amazon Associates tag
+                amazon=amazon_affiliate_code or "hackai20-20",  # Use provided code or default
                 ebay="",
                 walmart="",
                 target="",
@@ -230,42 +231,12 @@ class VideoMonetizationAnalyzer:
                     content_type = channel_data.get("content_analysis", {}).get("content_type", "unknown")
                     channel_info = f"YouTube channel has {subscribers} subscribers, content type: {content_type}"
             
-            # Create GROQ prompt
-            prompt = f"""
-Based on the following video content analysis, generate specific monetization strategies for this content creator:
-
-Video Summary:
-{video_summary}
-
-Channel Context:
-{channel_info}
-
-Products mentioned in video:
-{', '.join(task.product_keywords) if task.product_keywords else 'None'}
-
-Generate monetization strategies that are:
-1. Specific and actionable
-2. Based on the actual content shown
-3. Realistic for the creator's current situation
-
-Return ONLY a JSON array with this exact format:
-[
-  {{
-    "strategy_type": "course",
-    "title": "How to Get a Job at Meta",
-    "description": "Create a comprehensive course teaching viewers how to prepare for and land a job at Meta, based on your insider experience",
-    "implementation_steps": ["Step 1", "Step 2", "Step 3"],
-    "estimated_effort": "high",
-    "estimated_timeline": "2-3 months",
-    "potential_revenue": "high"
-  }}
-]
-
-Strategy types can be: course, sponsorship, affiliate, merchandise, coaching, consulting, patreon, youtube_memberships, live_events
-Effort levels: low, medium, high
-Timeline examples: "1-2 weeks", "1 month", "2-3 months", "3-6 months"
-Revenue potential: low, medium, high
-            """
+            # Create GROQ prompt using imported template
+            prompt = MONETIZATION_STRATEGY_PROMPT.format(
+                video_summary=video_summary,
+                channel_info=channel_info,
+                product_keywords=', '.join(task.product_keywords) if task.product_keywords else 'None'
+            )
             
             # Call GROQ API
             import httpx
@@ -279,7 +250,7 @@ Revenue potential: low, medium, high
                         "messages": [
                             {
                                 "role": "system", 
-                                "content": "You are an expert in content creator monetization strategies. Return only valid JSON as requested."
+                                "content": MONETIZATION_SYSTEM_MESSAGE
                             },
                             {
                                 "role": "user", 
