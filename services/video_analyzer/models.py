@@ -25,14 +25,6 @@ class VisualObject(BaseModel):
     description: Optional[str] = None
 
 
-class AudioAnalysis(BaseModel):
-    """Audio analysis results"""
-    speech_detected: bool
-    music_detected: Optional[bool] = None
-    background_noise: Optional[str] = None
-    audio_quality: Optional[str] = None
-
-
 class SceneAnalysis(BaseModel):
     """Scene/chapter analysis"""
     start: float
@@ -42,14 +34,13 @@ class SceneAnalysis(BaseModel):
     confidence: Optional[float] = None
 
 
-class VideoInsights(BaseModel):
-    """Actionable insights from video analysis"""
-    content_type: str  # e.g., "tutorial", "entertainment", "news", "interview"
-    target_audience: Optional[str] = None
-    key_topics: List[str] = []
-    sentiment: Optional[str] = None  # positive, negative, neutral
-    engagement_hooks: List[str] = []  # moments that could engage viewers
-    improvement_suggestions: List[str] = []
+class VideoContext(BaseModel):
+    """Context and analysis of the video content"""
+    content_summary: str
+    main_topics: List[str] = []
+    content_type: str
+    duration: Optional[float] = None
+    language: Optional[str] = None
 
 
 class VideoAnalysisResult(BaseModel):
@@ -59,9 +50,8 @@ class VideoAnalysisResult(BaseModel):
     video_metadata: Dict[str, Any] = {}
     transcript: List[TranscriptSegment] = []
     visual_analysis: List[VisualObject] = []
-    audio_analysis: Optional[AudioAnalysis] = None
     scenes: List[SceneAnalysis] = []
-    insights: Optional[VideoInsights] = None
+    context: Optional[VideoContext] = None
     raw_data: Optional[Dict[str, Any]] = None  # Keep original API response
     error_message: Optional[str] = None
     created_at: datetime 

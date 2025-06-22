@@ -7,9 +7,8 @@ from .models import (
     VideoAnalysisResult, 
     TranscriptSegment, 
     VisualObject, 
-    AudioAnalysis, 
     SceneAnalysis, 
-    VideoInsights
+    VideoContext
 )
 from .api_client import TwelveLabsAPIClient
 
@@ -23,22 +22,24 @@ class VideoAnalyzer:
         start_time = datetime.now()
         
         try:
-            # Use the API client to analyze the video
-            result = self.api_client.analyze_video_file(file_path, request.features)
+            # Map features to analysis types
+            analysis_types = self._map_features_to_analysis_types(request.features)
             
-            # Parse the raw data into structured format
-            parsed_data = self._parse_analysis_data(result["result"])
+            # Use the API client to analyze the video
+            result = self.api_client.analyze_video_file(file_path, analysis_types)
+            
+            # Parse the analysis data into structured format
+            parsed_data = self._parse_analysis_data(result["analysis"])
             
             return VideoAnalysisResult(
-                task_id=result["task_id"],
+                task_id=result["upload"]["task_id"],
                 status=result["status"],
-                video_metadata=parsed_data.get("metadata", {}),
+                video_metadata=self._extract_metadata(result),
                 transcript=parsed_data.get("transcript", []),
                 visual_analysis=parsed_data.get("visual_analysis", []),
-                audio_analysis=parsed_data.get("audio_analysis"),
                 scenes=parsed_data.get("scenes", []),
-                insights=parsed_data.get("insights"),
-                raw_data=result["result"],
+                context=parsed_data.get("context"),
+                raw_data=result,
                 created_at=start_time
             )
             
@@ -50,50 +51,224 @@ class VideoAnalyzer:
                 created_at=start_time
             )
 
-    def _parse_analysis_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse raw Twelve Labs API response into structured data"""
+    def _map_features_to_analysis_types(self, features: List[str]) -> List[str]:
+        """Map feature requests to Twelve Labs analysis types"""
+        analysis_types = []
+        
+        # Map common features to analysis types
+        feature_mapping = {
+            "transcript": ["gist", "summary"],
+            "visual": ["gist", "analysis"],
+            "audio": ["gist", "summary"],
+            "scenes": ["chapters", "highlights"],
+            "summary": ["summary"],
+            "chapters": ["chapters"],
+            "highlights": ["highlights"],
+            "topics": ["gist"],
+            "hashtags": ["gist"],
+            "analysis": ["analysis"]
+        }
+        
+        for feature in features:
+            if feature in feature_mapping:
+                analysis_types.extend(feature_mapping[feature])
+        
+        # Remove duplicates and ensure we have at least some analysis
+        analysis_types = list(set(analysis_types))
+        if not analysis_types:
+            analysis_types = ["gist", "summary", "analysis"]
+        
+        return analysis_types
+
+    def _extract_metadata(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract metadata from the analysis result"""
+        metadata = {
+            "video_id": result.get("video_id"),
+            "task_id": result.get("upload", {}).get("task_id"),
+            "upload_status": result.get("upload", {}).get("status"),
+            "created_at": result.get("created_at")
+        }
+        
+        # Add usage information if available
+        usage_info = {}
+        for analysis_type, data in result.get("analysis", {}).items():
+            if "usage" in data:
+                usage_info[analysis_type] = data["usage"]
+        
+        if usage_info:
+            metadata["usage"] = usage_info
+        
+        return metadata
+
+    def _parse_analysis_data(self, analysis_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse Twelve Labs analysis results into structured data"""
         parsed = {
-            "metadata": {},
             "transcript": [],
             "visual_analysis": [],
-            "audio_analysis": None,
             "scenes": [],
-            "insights": None
+            "context": None
         }
         
         try:
-            # Extract basic metadata
-            if hasattr(raw_data, 'id'):
-                parsed["metadata"]["task_id"] = raw_data.id
-            if hasattr(raw_data, 'created_at'):
-                parsed["metadata"]["created_at"] = raw_data.created_at
+            # Parse gist data (titles, topics, hashtags)
+            if "gist" in analysis_data:
+                gist_data = analysis_data["gist"]
+                parsed["context"] = self._create_context_from_gist(gist_data)
             
-            # Extract transcript if available
-            if hasattr(raw_data, 'transcript') and raw_data.transcript:
-                parsed["transcript"] = self._parse_transcript(raw_data.transcript)
+            # Parse summary data
+            if "summary" in analysis_data:
+                summary_data = analysis_data["summary"]
+                if parsed["context"] is None:
+                    parsed["context"] = VideoContext()
+                parsed["context"].content_summary = summary_data.get("summary", "")
             
-            # Extract visual analysis if available
-            if hasattr(raw_data, 'visual') and raw_data.visual:
-                parsed["visual_analysis"] = self._parse_visual_analysis(raw_data.visual)
+            # Parse chapters data
+            if "chapters" in analysis_data:
+                chapters_data = analysis_data["chapters"]
+                parsed["scenes"] = self._parse_chapters_to_scenes(chapters_data.get("chapters", []))
             
-            # Extract audio analysis
-            parsed["audio_analysis"] = self._extract_audio_analysis(raw_data)
+            # Parse highlights data
+            if "highlights" in analysis_data:
+                highlights_data = analysis_data["highlights"]
+                # Add highlights to context
+                if parsed["context"] is None:
+                    parsed["context"] = VideoContext()
+                parsed["context"].key_insights = self._extract_highlights(highlights_data.get("highlights", []))
             
-            # Extract scenes/chapters
-            if hasattr(raw_data, 'scenes') and raw_data.scenes:
-                parsed["scenes"] = self._parse_scenes(raw_data.scenes)
+            # Parse open-ended analysis
+            if "analysis" in analysis_data:
+                analysis_text = analysis_data["analysis"].get("analysis", "")
+                if parsed["context"] is None:
+                    parsed["context"] = VideoContext()
+                parsed["context"] = self._enhance_context_with_analysis(parsed["context"], analysis_text)
             
-            # Generate insights
-            parsed["insights"] = self._generate_insights(
-                parsed["transcript"], 
-                parsed["visual_analysis"], 
-                parsed["audio_analysis"]
-            )
+            # Generate transcript from analysis if not available
+            if not parsed["transcript"]:
+                parsed["transcript"] = self._generate_transcript_from_analysis(analysis_data)
             
         except Exception as e:
             print(f"Error parsing analysis data: {str(e)}")
+            import traceback
+            traceback.print_exc()
         
         return parsed
+
+    def _create_context_from_gist(self, gist_data: Dict[str, Any]) -> VideoContext:
+        """Create video context from gist data"""
+        context = VideoContext()
+        
+        context.title = gist_data.get("title", "")
+        context.main_topics = gist_data.get("topics", [])
+        context.hashtags = gist_data.get("hashtags", [])
+        
+        # Determine content type from topics
+        if context.main_topics:
+            context.content_type = self._determine_content_type_from_topics(context.main_topics)
+        
+        return context
+
+    def _parse_chapters_to_scenes(self, chapters: List[Dict[str, Any]]) -> List[SceneAnalysis]:
+        """Convert chapters data to scene analysis"""
+        scenes = []
+        for chapter in chapters:
+            if isinstance(chapter, dict):
+                scenes.append(SceneAnalysis(
+                    start=chapter.get("start", 0),
+                    end=chapter.get("end", 0),
+                    description=chapter.get("chapter_title", "") + ": " + chapter.get("chapter_summary", ""),
+                    key_elements=[chapter.get("chapter_title", "")],
+                    confidence=0.9  # Default confidence for chapters
+                ))
+        return scenes
+
+    def _extract_highlights(self, highlights: List[Dict[str, Any]]) -> List[str]:
+        """Extract key insights from highlights"""
+        insights = []
+        for highlight in highlights:
+            if isinstance(highlight, dict):
+                insights.append(highlight.get("highlight", ""))
+        return insights
+
+    def _enhance_context_with_analysis(self, context: VideoContext, analysis_text: str) -> VideoContext:
+        """Enhance context with open-ended analysis results"""
+        if not context:
+            context = VideoContext()
+        
+        # Extract additional insights from analysis text
+        context.content_summary = analysis_text[:500] + "..." if len(analysis_text) > 500 else analysis_text
+        
+        # Try to extract target audience from analysis
+        if "audience" in analysis_text.lower():
+            context.target_audience = self._extract_target_audience(analysis_text)
+        
+        # Try to extract sentiment
+        context.sentiment = self._analyze_sentiment(analysis_text)
+        
+        return context
+
+    def _generate_transcript_from_analysis(self, analysis_data: Dict[str, Any]) -> List[TranscriptSegment]:
+        """Generate transcript segments from analysis data"""
+        # Since we don't have actual transcript data, create a summary segment
+        segments = []
+        
+        summary_text = ""
+        if "summary" in analysis_data:
+            summary_text = analysis_data["summary"].get("summary", "")
+        
+        if summary_text:
+            segments.append(TranscriptSegment(
+                start=0,
+                end=60,  # Assume 1 minute for summary
+                text=summary_text,
+                confidence=0.8
+            ))
+        
+        return segments
+
+    def _determine_content_type_from_topics(self, topics: List[str]) -> str:
+        """Determine content type from topics"""
+        topic_text = " ".join(topics).lower()
+        
+        if any(word in topic_text for word in ["tutorial", "how to", "guide", "instruction"]):
+            return "tutorial"
+        elif any(word in topic_text for word in ["review", "comparison", "test"]):
+            return "review"
+        elif any(word in topic_text for word in ["news", "update", "announcement"]):
+            return "news"
+        elif any(word in topic_text for word in ["entertainment", "fun", "comedy"]):
+            return "entertainment"
+        else:
+            return "educational"
+
+    def _extract_target_audience(self, analysis_text: str) -> str:
+        """Extract target audience from analysis text"""
+        text_lower = analysis_text.lower()
+        
+        if any(word in text_lower for word in ["beginner", "newcomer", "starter"]):
+            return "beginners"
+        elif any(word in text_lower for word in ["advanced", "expert", "professional"]):
+            return "advanced users"
+        elif any(word in text_lower for word in ["student", "learner", "education"]):
+            return "students"
+        else:
+            return "general audience"
+
+    def _analyze_sentiment(self, text: str) -> str:
+        """Simple sentiment analysis"""
+        text_lower = text.lower()
+        
+        positive_words = ["good", "great", "excellent", "amazing", "wonderful", "positive"]
+        negative_words = ["bad", "poor", "terrible", "awful", "negative", "disappointing"]
+        
+        positive_count = sum(1 for word in positive_words if word in text_lower)
+        negative_count = sum(1 for word in negative_words if word in text_lower)
+        
+        if positive_count > negative_count:
+            return "positive"
+        elif negative_count > positive_count:
+            return "negative"
+        else:
+            return "neutral"
 
     def _parse_transcript(self, transcript_data: Any) -> List[TranscriptSegment]:
         """Parse transcript data into structured segments"""
@@ -130,24 +305,6 @@ class VideoAnalyzer:
             print(f"Error parsing visual analysis: {str(e)}")
         return objects
 
-    def _extract_audio_analysis(self, raw_data: Any) -> AudioAnalysis:
-        """Extract audio analysis from raw data"""
-        try:
-            # Check if there's speech in the transcript
-            has_speech = False
-            if hasattr(raw_data, 'transcript') and raw_data.transcript:
-                has_speech = len(raw_data.transcript) > 0
-            
-            return AudioAnalysis(
-                speech_detected=has_speech,
-                music_detected=None,  # Would need additional audio analysis
-                background_noise=None,
-                audio_quality=None
-            )
-        except Exception as e:
-            print(f"Error extracting audio analysis: {str(e)}")
-            return AudioAnalysis(speech_detected=False)
-
     def _parse_scenes(self, scenes_data: Any) -> List[SceneAnalysis]:
         """Parse scene/chapter data"""
         scenes = []
@@ -166,143 +323,96 @@ class VideoAnalyzer:
             print(f"Error parsing scenes: {str(e)}")
         return scenes
 
-    def _generate_insights(self, transcript: List[TranscriptSegment], 
-                          visual_objects: List[VisualObject], 
-                          audio_analysis: AudioAnalysis) -> VideoInsights:
-        """Generate actionable insights from the analysis"""
+    def _generate_context(self, transcript: List[TranscriptSegment], 
+                         visual_objects: List[VisualObject], 
+                         scenes: List[SceneAnalysis],
+                         raw_data: Any) -> VideoContext:
+        """Generate context from the analysis data"""
         try:
-            # Analyze content type based on transcript and visual content
-            content_type = self._determine_content_type(transcript, visual_objects)
+            # Get full transcript text
+            full_text = " ".join([seg.text for seg in transcript])
             
-            # Extract key topics from transcript
-            key_topics = self._extract_key_topics(transcript)
+            # Extract main topics from transcript
+            main_topics = self._extract_main_topics(full_text)
             
-            # Determine target audience
-            target_audience = self._determine_target_audience(transcript, visual_objects)
+            # Determine content type
+            content_type = self._determine_content_type(full_text, visual_objects)
             
-            # Analyze sentiment
-            sentiment = self._analyze_sentiment(transcript)
+            # Get duration from scenes or transcript
+            duration = None
+            if scenes:
+                duration = max([scene.end for scene in scenes])
+            elif transcript:
+                duration = max([seg.end for seg in transcript])
             
-            # Find engagement hooks
-            engagement_hooks = self._find_engagement_hooks(transcript, visual_objects)
+            # Create content summary
+            content_summary = self._create_content_summary(full_text, visual_objects, scenes)
             
-            # Generate improvement suggestions
-            improvement_suggestions = self._generate_improvement_suggestions(
-                transcript, visual_objects, audio_analysis
-            )
-            
-            return VideoInsights(
+            return VideoContext(
+                content_summary=content_summary,
+                main_topics=main_topics,
                 content_type=content_type,
-                target_audience=target_audience,
-                key_topics=key_topics,
-                sentiment=sentiment,
-                engagement_hooks=engagement_hooks,
-                improvement_suggestions=improvement_suggestions
+                duration=duration,
+                language=None  # Could be detected from transcript
             )
             
         except Exception as e:
-            print(f"Error generating insights: {str(e)}")
-            return VideoInsights(content_type="unknown", key_topics=[])
+            print(f"Error generating context: {str(e)}")
+            return VideoContext(
+                content_summary="Analysis data available",
+                main_topics=[],
+                content_type="unknown"
+            )
 
-    def _determine_content_type(self, transcript: List[TranscriptSegment], 
-                               visual_objects: List[VisualObject]) -> str:
-        """Determine the type of content based on analysis"""
-        # Simple heuristics - can be enhanced with ML
-        text = " ".join([seg.text.lower() for seg in transcript])
-        
-        if any(word in text for word in ["tutorial", "how to", "step by step", "guide"]):
-            return "tutorial"
-        elif any(word in text for word in ["news", "breaking", "update", "report"]):
-            return "news"
-        elif any(word in text for word in ["interview", "question", "answer"]):
-            return "interview"
-        elif any(word in text for word in ["funny", "joke", "entertainment", "comedy"]):
-            return "entertainment"
-        else:
-            return "general"
-
-    def _extract_key_topics(self, transcript: List[TranscriptSegment]) -> List[str]:
-        """Extract key topics from transcript"""
-        # Simple keyword extraction - can be enhanced with NLP
-        text = " ".join([seg.text.lower() for seg in transcript])
-        common_words = ["the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by"]
-        
-        words = text.split()
+    def _extract_main_topics(self, text: str) -> List[str]:
+        """Extract main topics from text"""
+        # Simple keyword extraction
+        words = text.lower().split()
         word_freq = {}
+        common_words = {"the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "is", "are", "was", "were", "be", "been", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "can", "this", "that", "these", "those", "a", "an"}
+        
         for word in words:
             if word not in common_words and len(word) > 3:
                 word_freq[word] = word_freq.get(word, 0) + 1
         
-        # Return top 5 most frequent words as topics
+        # Return top 5 most frequent words
         sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
         return [word for word, freq in sorted_words[:5]]
 
-    def _determine_target_audience(self, transcript: List[TranscriptSegment], 
-                                  visual_objects: List[VisualObject]) -> str:
-        """Determine target audience"""
-        # Simple heuristics
-        text = " ".join([seg.text.lower() for seg in transcript])
+    def _determine_content_type(self, text: str, visual_objects: List[VisualObject]) -> str:
+        """Determine content type from text and visual objects"""
+        text_lower = text.lower()
         
-        if any(word in text for word in ["kids", "children", "family"]):
-            return "family"
-        elif any(word in text for word in ["professional", "business", "corporate"]):
-            return "professional"
-        elif any(word in text for word in ["student", "education", "learning"]):
-            return "students"
+        if any(word in text_lower for word in ["tutorial", "how to", "step by step", "guide"]):
+            return "tutorial"
+        elif any(word in text_lower for word in ["news", "breaking", "update", "report"]):
+            return "news"
+        elif any(word in text_lower for word in ["interview", "question", "answer"]):
+            return "interview"
+        elif any(word in text_lower for word in ["funny", "joke", "entertainment", "comedy"]):
+            return "entertainment"
         else:
             return "general"
 
-    def _analyze_sentiment(self, transcript: List[TranscriptSegment]) -> str:
-        """Analyze sentiment of the content"""
-        # Simple sentiment analysis - can be enhanced with proper NLP
-        text = " ".join([seg.text.lower() for seg in transcript])
+    def _create_content_summary(self, text: str, visual_objects: List[VisualObject], scenes: List[SceneAnalysis]) -> str:
+        """Create a summary of the video content"""
+        summary_parts = []
         
-        positive_words = ["good", "great", "excellent", "amazing", "wonderful", "love", "like"]
-        negative_words = ["bad", "terrible", "awful", "hate", "dislike", "problem", "issue"]
+        # Add transcript summary if available
+        if text:
+            words = text.split()
+            if len(words) > 50:
+                summary_parts.append(f"Contains {len(words)} words of spoken content")
+            else:
+                summary_parts.append(f"Contains spoken content: {text[:200]}...")
         
-        positive_count = sum(1 for word in positive_words if word in text)
-        negative_count = sum(1 for word in negative_words if word in text)
+        # Add visual content summary
+        if visual_objects:
+            unique_objects = list(set([obj.label for obj in visual_objects]))
+            summary_parts.append(f"Visual elements: {', '.join(unique_objects[:5])}")
         
-        if positive_count > negative_count:
-            return "positive"
-        elif negative_count > positive_count:
-            return "negative"
-        else:
-            return "neutral"
-
-    def _find_engagement_hooks(self, transcript: List[TranscriptSegment], 
-                              visual_objects: List[VisualObject]) -> List[str]:
-        """Find potential engagement hooks in the content"""
-        hooks = []
+        # Add scene summary
+        if scenes:
+            summary_parts.append(f"Contains {len(scenes)} scenes/chapters")
         
-        # Look for questions in transcript
-        for segment in transcript:
-            if "?" in segment.text:
-                hooks.append(f"Question at {segment.start}s: {segment.text}")
-        
-        # Look for visual highlights
-        for obj in visual_objects:
-            if obj.confidence > 0.8:  # High confidence objects
-                hooks.append(f"Visual highlight at {obj.start}s: {obj.label}")
-        
-        return hooks[:5]  # Return top 5 hooks
-
-    def _generate_improvement_suggestions(self, transcript: List[TranscriptSegment], 
-                                        visual_objects: List[VisualObject], 
-                                        audio_analysis: AudioAnalysis) -> List[str]:
-        """Generate improvement suggestions"""
-        suggestions = []
-        
-        # Check transcript length
-        if len(transcript) < 5:
-            suggestions.append("Consider adding more spoken content for better engagement")
-        
-        # Check visual content
-        if len(visual_objects) < 3:
-            suggestions.append("Add more visual elements to keep viewers engaged")
-        
-        # Check audio quality
-        if not audio_analysis.speech_detected:
-            suggestions.append("Consider adding voice-over or narration")
-        
-        return suggestions
+        return ". ".join(summary_parts) if summary_parts else "Video analysis completed"
