@@ -1,3 +1,5 @@
+from twelvelabs.models import Task
+
 from .api_client import client
 from pytube import YouTube
 import os
