@@ -186,14 +186,6 @@ class TwelveLabsAPIClient:
             print(f"Error in complete video analysis workflow: {str(e)}")
             raise
 
-    def get_video_info(self, video_id: str) -> Dict[str, Any]:
-        """Get information about a specific video"""
-        try:
-            return {"video_id": video_id, "status": "info_retrieved"}
-        except Exception as e:
-            print(f"Error getting video info: {str(e)}")
-            raise
-
     def get_frame_by_frame_analysis(
         self, video_id: str, interval_seconds: int = 5
     ) -> Dict[str, Any]:

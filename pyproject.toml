@@ -18,6 +18,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "deadcode>=2.4.1",
     "ruff>=0.12.0",
+    "vulture>=2.14",
 ]

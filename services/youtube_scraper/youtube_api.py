@@ -98,27 +98,6 @@ class YouTubeAPIClient:
 
         return None
 
-    async def get_channel_by_username(self, username: str) -> Optional[str]:
-        """Get channel ID from legacy username"""
-        if not self.api_key:
-            return None
-
-        try:
-            url = f"{self.base_url}/channels"
-            params = {"part": "id", "forUsername": username, "key": self.api_key}
-
-            response = await self.client.get(url, params=params)
-            response.raise_for_status()
-
-            data = response.json()
-            if data.get("items"):
-                return data["items"][0]["id"]
-
-        except Exception as e:
-            logger.error(f"Error getting channel by username {username}: {str(e)}")
-
-        return None
-
     async def get_channel_info(
         self, channel_id: str, max_videos: int = 50
     ) -> Optional[ChannelInfo]:
@@ -297,31 +276,4 @@ class YouTubeAPIClient:
 
         except Exception as e:
             print(f"Error parsing video item: {str(e)}")
-            return None
-
-    async def get_video_info(self, video_id: str) -> Optional[VideoInfo]:
-        """Get detailed information for a single video"""
-        if not self.api_key:
-            return None
-
-        try:
-            url = f"{self.base_url}/videos"
-            params = {
-                "part": "snippet,statistics,contentDetails",
-                "id": video_id,
-                "key": self.api_key,
-            }
-
-            response = await self.client.get(url, params=params)
-            response.raise_for_status()
-
-            data = response.json()
-
-            if not data.get("items"):
-                return None
-
-            return self._parse_video_item(data["items"][0])
-
-        except Exception as e:
-            print(f"Error getting video info for {video_id}: {str(e)}")
             return None

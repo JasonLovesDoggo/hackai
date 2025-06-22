@@ -272,15 +272,6 @@ class AffiliateDiscoveryEngine:
             search_timestamp=datetime.now().isoformat(),
         )
 
-    async def get_cached_results(
-        self, keywords: List[str]
-    ) -> Optional[ProductSearchResult]:
-        """Get cached results for specific keywords"""
-        cached_result = simple_cache.get("affiliate_discovery", keywords=keywords)
-        if cached_result:
-            return ProductSearchResult(**cached_result)
-        return None
-
     def clear_cache(self) -> int:
         """Clear all cached affiliate discovery results"""
         return simple_cache.clear()

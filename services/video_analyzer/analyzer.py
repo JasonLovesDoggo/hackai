@@ -238,47 +238,6 @@ class VideoAnalyzer:
             print(f"Warning: Could not enhance context with analysis: {str(e)}")
             return context
 
-    def _generate_transcript_from_analysis(
-        self, analysis_data: Dict[str, Any]
-    ) -> List[TranscriptSegment]:
-        """Generate transcript segments from analysis data"""
-        # Since we don't have actual transcript data, create a summary segment
-        segments = []
-
-        summary_text = ""
-        if "summary" in analysis_data:
-            summary_text = analysis_data["summary"].get("summary", "")
-
-        if summary_text:
-            segments.append(
-                TranscriptSegment(
-                    start=0,
-                    end=0,  # Assume 1 minute for summary
-                    text=summary_text,
-                    confidence=0.8,
-                )
-            )
-
-        return segments
-
-    def _determine_content_type_from_topics(self, topics: List[str]) -> str:
-        """Determine content type from topics"""
-        topic_text = " ".join(topics).lower()
-
-        if any(
-            word in topic_text
-            for word in ["tutorial", "how to", "guide", "instruction"]
-        ):
-            return "tutorial"
-        elif any(word in topic_text for word in ["review", "comparison", "test"]):
-            return "review"
-        elif any(word in topic_text for word in ["news", "update", "announcement"]):
-            return "news"
-        elif any(word in topic_text for word in ["entertainment", "fun", "comedy"]):
-            return "entertainment"
-        else:
-            return "educational"
-
     def _extract_target_audience(self, analysis_text: str) -> str:
         """Extract target audience from analysis text"""
         text_lower = analysis_text.lower()
@@ -479,7 +438,7 @@ class VideoAnalyzer:
 
         # Return top 5 most frequent words
         sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
-        return [word for word, freq in sorted_words[:5]]
+        return [word for word,  in sorted_words[:5]]
 
     def _determine_content_type(
         self, text: str, visual_objects: List[VisualObject]
