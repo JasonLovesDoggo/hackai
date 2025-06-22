@@ -283,7 +283,7 @@ Rules:
             return []
     
     async def _generate_product_links(self, task_id: str, products_with_timestamps: List[Dict[str, str]], amazon_affiliate_code: Optional[str] = None):
-        """Generate affiliate links for extracted product keywords - parallelized per keyword"""
+        """Generate affiliate links - ONE TOP RESULT per original product"""
         try:
             # Use provided affiliate codes or defaults
             affiliate_codes = AffiliateCodes(
@@ -296,111 +296,75 @@ Rules:
                 clickbank=""
             )
             
-            logger.info(f"🔧 Processing {len(products_with_timestamps)} products for affiliate links...")
+            logger.info(f"🇺🇸 MAKING AFFILIATE LINKS GREAT AGAIN! Processing {len(products_with_timestamps)} products...")
             
-            # Split each product name into individual keywords and create separate requests
-            all_keyword_requests = []
-            keyword_to_timestamp_map = {}
+            # Parallelize affiliate link generation - ONE per original product
+            import asyncio
             
-            for product_data in products_with_timestamps:
+            async def generate_top_link_for_product(product_data):
                 product_name = product_data["name"]
                 timestamp = product_data["timestamp"]
                 
-                # Split product name into individual keywords
-                # Filter out common words and keep meaningful words
-                keywords = product_name.split()
-                meaningful_keywords = []
-                
-                # Filter out common words but keep important ones
-                skip_words = {"the", "a", "an", "and", "or", "but", "for", "with", "by", "of", "in", "on", "at", "to"}
-                for word in keywords:
-                    cleaned_word = word.strip().lower().replace(",", "")
-                    if len(cleaned_word) > 2 and cleaned_word not in skip_words:
-                        meaningful_keywords.append(cleaned_word)
-                
-                logger.info(f"📝 Product '{product_name}' -> keywords: {meaningful_keywords}")
-                
-                # Create individual requests for each meaningful keyword
-                for keyword in meaningful_keywords:
-                    all_keyword_requests.append({
-                        "keyword": keyword,
-                        "timestamp": timestamp,
-                        "original_product": product_name
-                    })
-                    # Map keyword to timestamp for later matching
-                    keyword_to_timestamp_map[keyword.lower()] = timestamp
-            
-            logger.info(f"🚀 Generating affiliate links for {len(all_keyword_requests)} individual keywords...")
-            
-            # Parallelize affiliate link generation for each keyword
-            import asyncio
-            
-            async def generate_links_for_keyword(keyword_data):
                 try:
+                    logger.info(f"🎯 Searching for TOP result for: '{product_name}'")
+                    
+                    # Create request with the FULL product name for best match
                     link_request = LinkGenerationRequest(
-                        keywords=[keyword_data["keyword"]],
+                        keywords=[product_name],  # Use full product name as one keyword
                         affiliate_codes=affiliate_codes,
-                        max_results=3  # Limit per keyword to avoid too many results
+                        max_results=1  # ONLY GET THE TOP RESULT
                     )
                     
-                    result = await self.link_generator.generate_affiliate_links(link_request)
+                    link_result = await self.link_generator.generate_affiliate_links(link_request)
                     
-                    # Add timestamp and original product info to each result
-                    for link in result.product_links:
-                        link.timestamp = keyword_data["timestamp"]
-                        # Store original keyword for matching
-                        link._original_keyword = keyword_data["keyword"]
-                        link._original_product = keyword_data["original_product"]
-                    
-                    return result.product_links
-                    
+                    if link_result.product_links:
+                        # Get the TOP (first) result
+                        top_link = link_result.product_links[0]
+                        
+                        # Create ProductLink with timestamp
+                        product = ProductLink(
+                            product_name=top_link.product_name,
+                            product_url=top_link.product_url,
+                            affiliate_url=top_link.affiliate_url,
+                            platform=top_link.platform,
+                            price=top_link.price,
+                            rating=top_link.rating,
+                            image_url=top_link.image_url,
+                            availability=top_link.availability,
+                            timestamp=timestamp
+                        )
+                        
+                        logger.info(f"✅ Found TOP result for '{product_name}': {top_link.product_name}")
+                        return product
+                    else:
+                        logger.error(f"❌ NO RESULTS for '{product_name}' - SEARCH FAILED!")
+                        return None
+                        
                 except Exception as e:
-                    logger.error(f"❌ Failed to generate links for keyword '{keyword_data['keyword']}': {e}")
-                    return []
+                    logger.error(f"💥 Failed to get TOP result for '{product_name}': {e}")
+                    return None
             
-            # Run all keyword searches in parallel
-            keyword_results = await asyncio.gather(
-                *[generate_links_for_keyword(keyword_data) for keyword_data in all_keyword_requests],
+            # Run all product searches in parallel
+            logger.info(f"🚀 Running {len(products_with_timestamps)} parallel searches...")
+            product_results = await asyncio.gather(
+                *[generate_top_link_for_product(product_data) for product_data in products_with_timestamps],
                 return_exceptions=True
             )
             
-            # Collect all successful results
-            all_product_links = []
-            for result in keyword_results:
-                if isinstance(result, list):
-                    all_product_links.extend(result)
+            # Collect successful results (filter out None and exceptions)
+            final_products = []
+            for result in product_results:
+                if isinstance(result, ProductLink):
+                    final_products.append(result)
                 elif isinstance(result, Exception):
-                    logger.error(f"❌ Keyword search failed: {result}")
+                    logger.error(f"❌ Product search exception: {result}")
+                # Skip None results (no products found)
             
-            # Convert to our ProductLink model
-            products = []
-            for link in all_product_links:
-                product = ProductLink(
-                    product_name=link.product_name,
-                    product_url=link.product_url,
-                    affiliate_url=link.affiliate_url,
-                    platform=link.platform,
-                    price=link.price,
-                    rating=link.rating,
-                    image_url=link.image_url,
-                    availability=link.availability,
-                    timestamp=getattr(link, 'timestamp', None)
-                )
-                products.append(product)
-            
-            # Remove duplicates based on product_url
-            unique_products = []
-            seen_urls = set()
-            for product in products:
-                if product.product_url not in seen_urls:
-                    unique_products.append(product)
-                    seen_urls.add(product.product_url)
-            
-            self.tasks[task_id].products = unique_products
-            logger.info(f"✅ Generated {len(unique_products)} unique product links from {len(all_keyword_requests)} keywords for task {task_id}")
+            self.tasks[task_id].products = final_products
+            logger.info(f"🏆 SUCCESS! Generated {len(final_products)} TOP affiliate links (one per original product)")
             
         except Exception as e:
-            logger.error(f"💥 Error generating product links for task {task_id}: {e}")
+            logger.error(f"💥 CRITICAL ERROR generating product links for task {task_id}: {e}")
     
     async def _get_channel_context(self, task_id: str, youtube_channel_url: str):
         """Get YouTube channel context for additional monetization insights"""
