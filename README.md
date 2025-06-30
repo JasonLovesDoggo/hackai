@@ -1,5 +1,7 @@
 # HackAI - Creator Monetization Backend
 
+Pair repo for https://github.com/AlankritVerma01/Hackai-frontend
+
 A comprehensive AI-powered backend system that helps YouTube creators analyze their channels and discover monetization opportunities.
 
 ## Features
